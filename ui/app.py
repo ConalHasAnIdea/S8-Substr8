@@ -1,4 +1,5 @@
 from pathlib import Path
+import secrets
 import sys
 import json
 import os
@@ -79,7 +80,10 @@ DOMAINS = {
 }
 
 app = Flask(__name__)
-app.secret_key = "substr8-local-mock-mode"
+# Session-signing key: from the environment if provided, otherwise random per
+# process. Sessions (and the review-queue "discovery ran" flags they carry)
+# reset on restart, consistent with the in-memory API key store.
+app.secret_key = os.environ.get("FLASK_SECRET_KEY") or secrets.token_hex(32)
 
 
 def status_class(status: str) -> str:
@@ -816,4 +820,5 @@ def demo_reset():
 
 
 if __name__ == "__main__":
-    app.run(debug=os.environ.get("FLASK_DEBUG", "1") != "0", port=int(os.environ.get("PORT", "5000")))
+    # Debug (interactive debugger + auto-reload) is opt-in: FLASK_DEBUG=1.
+    app.run(debug=os.environ.get("FLASK_DEBUG", "0") == "1", port=int(os.environ.get("PORT", "5000")))
