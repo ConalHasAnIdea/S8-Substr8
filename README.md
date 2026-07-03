@@ -1,4 +1,4 @@
-# Substr8 Phase 1
+# S8 0.1 - Substr8 Phase 1
 
 > *Machina proponit, homo disponit.*
 > The machine proposes, the human disposes.
