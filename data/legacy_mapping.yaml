@@ -1,0 +1,56 @@
+legacy_version: "2019.11-imperfect"
+rules:
+  - id: Legacy Rule 1
+    source_field: perceivedSeverity
+    source_value: critical
+    destination_fields: [impact, urgency]
+    outcome: {impact: 1-High, urgency: 1-High}
+    note: Old blanket critical mapping. Still mostly correct.
+  - id: Legacy Rule 2
+    source_field: perceivedSeverity
+    source_value: major
+    destination_fields: [impact, urgency]
+    outcome: {impact: 2-Medium, urgency: 2-Medium}
+    note: Outdated; ignores customer-facing service loss.
+  - id: Legacy Rule 3
+    source_field: probableCause
+    source_value: link_down
+    destination_fields: [assignment_group]
+    outcome: {assignment_group: Transport NOC}
+    note: Main transport handoff.
+  - id: Legacy Rule 4
+    source_field: probableCause
+    source_value: link_down
+    destination_fields: [assignment_group]
+    outcome: {assignment_group: Access NOC}
+    note: Duplicate stale rule from pre-consolidation access tooling.
+  - id: Legacy Rule 5
+    source_field: vendor
+    source_value: VendorB
+    destination_fields: [work_notes]
+    outcome: {work_notes: "Append legacy MIB slot/port workaround"}
+    note: Vendor-specific workaround; stale field name sn_custom_slot was removed.
+  - id: Legacy Rule 6
+    source_field: probableCause
+    source_value: power_failure
+    destination_fields: [assignment_group]
+    outcome: {assignment_group: Field Operations}
+    note: Usually site power, but misses UPS telemetry exceptions.
+  - id: Legacy Rule 7
+    source_field: probableCause
+    source_value: optical_degrade
+    destination_fields: [assignment_group]
+    outcome: {assignment_group: Optical Assurance}
+    note: VendorC quirks require manual validation.
+  - id: Legacy Rule 8
+    source_field: suppression
+    source_value: duplicate_correlationId
+    destination_fields: [state]
+    outcome: {state: Suppressed}
+    note: Suppress duplicates, but never for critical alarms.
+  - id: Legacy Rule 9
+    source_field: probableCause
+    source_value: sip_trunk_failure
+    destination_fields: [assignment_group]
+    outcome: {assignment_group: Voice NOC}
+    note: Enterprise Voice special routing.

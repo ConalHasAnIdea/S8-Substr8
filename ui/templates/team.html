@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+
+{% block title %}Substr8 Team{% endblock %}
+
+{% block content %}
+<section class="page-intro">
+  <p>Roster and group assignments are read from local YAML files. Editing remains file-based in Phase 1.</p>
+</section>
+
+<section class="panel">
+  <h3>Members</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Name</th>
+          <th>Role</th>
+          <th>Organization</th>
+          <th>Authority</th>
+          <th>Slack</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for member in members %}
+        <tr>
+          <td>{{ member.id }}</td>
+          <td>{{ member.name }}</td>
+          <td>{{ member.role }}</td>
+          <td>{{ member.organization }}</td>
+          <td>{{ member.authority_weight }}</td>
+          <td>{{ member.slack_handle }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="panel">
+  <h3>Groups</h3>
+  <div class="mapping-list">
+    {% for group in groups %}
+    <article class="team-group">
+      <strong>{{ group.name }}</strong>
+      <span class="muted">{{ group.id }}</span>
+      <p>
+        {% for member_id in group.members %}
+          {{ team_lookup[member_id].name if team_lookup.get(member_id) else member_id }}{% if not loop.last %}, {% endif %}
+        {% endfor %}
+      </p>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+
+{% block title %}Substr8 Settings{% endblock %}
+
+{% block content %}
+<section class="page-intro">
+  <p>API keys entered here are held in memory for the current session only: never written to disk, logs, or cookies, and gone when the app restarts. For production deployments, keys should come from a proper secrets manager such as HashiCorp Vault or a cloud provider secret store (AWS Secrets Manager, Azure Key Vault, GCP Secret Manager).</p>
+</section>
+
+<section class="panel">
+  <h3>Discovery Engine API Keys</h3>
+  <form method="post" action="{{ url_for('settings') }}" class="settings-form">
+    {% for item in providers %}
+    <div class="key-row">
+      <label>
+        <span>{{ item.label }}</span>
+        <input type="password" name="{{ item.field }}" autocomplete="off" placeholder="Enter key to set or replace">
+      </label>
+      {% if item.result and item.result.state == 'valid' %}
+      <p><span class="status-pill status-approved">Valid</span> <span class="muted">Stored in memory for this session.</span></p>
+      {% elif item.result and item.result.state == 'invalid' %}
+      <p><span class="status-pill status-rejected">Invalid</span> <span class="error-inline">Not stored. {{ item.result.error }}</span></p>
+      {% elif item.source == 'settings' %}
+      <p><span class="status-pill status-approved">Valid</span> <span class="muted">Loaded from settings this session.</span></p>
+      {% elif item.source == 'environment' %}
+      <p class="muted">Loaded from environment ({{ item.env_var }}).</p>
+      {% else %}
+      <p class="muted">Not configured.</p>
+      {% endif %}
+    </div>
+    {% endfor %}
+    <button type="submit">Save</button>
+  </form>
+
+  {% for item in providers %}
+  {% if item.source == 'settings' %}
+  <form method="post" action="{{ url_for('settings_clear') }}" class="actions">
+    <input type="hidden" name="provider" value="{{ item.provider }}">
+    <button type="submit" class="secondary-button">Clear {{ item.label }}</button>
+  </form>
+  {% endif %}
+  {% endfor %}
+</section>
+{% endblock %}

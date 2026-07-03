@@ -1,0 +1,25 @@
+<section class="corpus-panel">
+  <div class="corpus-heading">
+    <h3>Evidence corpus for this discovery run</h3>
+    <p>This is the operational evidence the discovery engine will read and cite from. Nothing here is hidden.</p>
+  </div>
+
+  <div class="corpus-grid">
+    {% for group in corpus_summary %}
+    <details class="corpus-group">
+      <summary>
+        <span>{{ group["items"]|length }} {{ group["label"] }}</span>
+        <span class="muted">{{ group["filename"] }}</span>
+      </summary>
+      <div class="corpus-items">
+        {% for item in group["items"] %}
+        <details>
+          <summary>{{ item["id"] }}</summary>
+          <pre>{{ item["record"] }}</pre>
+        </details>
+        {% endfor %}
+      </div>
+    </details>
+    {% endfor %}
+  </div>
+</section>

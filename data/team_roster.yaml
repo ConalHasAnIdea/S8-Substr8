@@ -1,0 +1,39 @@
+# Authority weights are illustrative Phase 1 inputs set by project leadership.
+# They are not computed, inferred, or algorithmically derived.
+team:
+  - id: TM-01
+    name: "Jordan Reyes"
+    role: "Client Operations Lead"
+    organization: "Operator"
+    authority_weight: 1.0
+    slack_handle: "@jordan.reyes"
+  - id: TM-02
+    name: "Priya Nair"
+    role: "Integration Architect"
+    organization: "Delivery Partner"
+    authority_weight: 0.9
+    slack_handle: "@priya.nair"
+  - id: TM-03
+    name: "Mateo Alvarez"
+    role: "Vendor Field Engineer"
+    organization: "Vendor A"
+    authority_weight: 0.4
+    slack_handle: "@mateo.alvarez"
+  - id: TM-04
+    name: "Sam Whitfield"
+    role: "Network SME"
+    organization: "Operator"
+    authority_weight: 0.85
+    slack_handle: "@sam.whitfield"
+  - id: TM-05
+    name: "Lin Chen"
+    role: "Fulfillment Systems Lead"
+    organization: "Operator"
+    authority_weight: 0.95
+    slack_handle: "@lin.chen"
+  - id: TM-06
+    name: "Avery Brooks"
+    role: "Vendor Support Analyst"
+    organization: "Vendor C"
+    authority_weight: 0.3
+    slack_handle: "@avery.brooks"

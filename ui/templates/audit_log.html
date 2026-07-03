@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+
+{% block title %}Substr8 Audit Log{% endblock %}
+
+{% block content %}
+<section class="page-intro">
+  <p>Every approval, rejection, and clarification request is recorded locally.</p>
+</section>
+
+<section class="panel">
+  <h3>Reviewer Activity</h3>
+  <p class="muted">Revision rate is based only on actions taken within this prototype's own synthetic audit log.</p>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Role</th>
+          <th>Assigned</th>
+          <th>Approved</th>
+          <th>Rejected</th>
+          <th>Needs Clarification</th>
+          <th>Total Actions</th>
+          <th>Revision Rate</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in report %}
+        <tr class="{{ 'unassigned-row' if row.is_unassigned else '' }}">
+          <td>{{ row.name }}</td>
+          <td>{{ row.role }}</td>
+          <td>{{ row.Assigned }}</td>
+          <td>{{ row.Approved }}</td>
+          <td>{{ row.Rejected }}</td>
+          <td>{{ row["Needs Clarification"] }}</td>
+          <td>{{ row.total_actions }}</td>
+          <td>{{ row.revision_rate }}%</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="panel">
+  <h3>Governance Review - Flagged Reasons</h3>
+  <p class="muted">These decisions stand. This list is for the governance owner to follow up with the reviewer directly. A flag is a prompt for a human conversation, not an automated reversal.</p>
+  {% if flagged_reasons %}
+    <div class="mapping-list">
+      {% for event in flagged_reasons %}
+      <article class="flagged-reason">
+        <div class="summary">
+          <span>{{ event.timestamp }}</span>
+          <span>{{ event.user }}</span>
+          <span>{{ event.decision_action }}</span>
+        </div>
+        <strong>{{ event.mapping }}</strong>
+        <p>
+          {{ event.reason }}
+          <span class="reason-flag" title="{{ event.flag_note }}">Reason flagged for governance review</span>
+        </p>
+        <p class="muted">{{ event.flag_note }}</p>
+      </article>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="empty">No current decision reasons are flagged for governance review.</p>
+  {% endif %}
+  {% if historical_flagged_reasons %}
+  <details class="historical-results">
+    <summary>Show Historical Logs</summary>
+    <div class="mapping-list">
+      {% for event in historical_flagged_reasons %}
+      <article class="flagged-reason historical">
+        <div class="summary">
+          <span>{{ event.timestamp }}</span>
+          <span>{{ event.user }}</span>
+          <span>{{ event.decision_action }}</span>
+        </div>
+        <strong>{{ event.mapping }}</strong>
+        <p>
+          {{ event.reason }}
+          <span class="reason-flag" title="{{ event.flag_note }}">Reason flagged for governance review</span>
+        </p>
+        <p class="muted">{{ event.flag_note }}</p>
+      </article>
+      {% endfor %}
+    </div>
+  </details>
+  {% endif %}
+</section>
+
+{% if events %}
+  <section class="mapping-list">
+    {% for event in events %}
+    <article class="panel audit-event">
+      <div class="summary">
+        <span>{{ event.action }}</span>
+        <span>{{ event.user }}</span>
+        <span>{{ event.domain|default('Assurance') }}</span>
+        {% if event.assigned_to %}
+          {% if team_lookup.get(event.assigned_to) %}
+          <span>Assigned to {{ team_lookup[event.assigned_to].name }}</span>
+          {% elif group_lookup.get(event.assigned_to) %}
+          <span>Assigned to {{ group_lookup[event.assigned_to].name }}</span>
+          {% else %}
+          <span>Assigned to {{ event.assigned_to }}</span>
+          {% endif %}
+        {% endif %}
+      </div>
+      <strong>{{ event.mapping }}</strong>
+      <p>
+        {{ event.reason or 'No reason supplied.' }}
+        {% if event.reason_flagged_for_review %}
+        <span class="reason-flag" title="{{ event.flag_note }}">Reason flagged for governance review</span>
+        {% endif %}
+      </p>
+      <p class="muted">{{ event.timestamp }}</p>
+    </article>
+    {% endfor %}
+  </section>
+{% else %}
+  <section class="panel empty-state">
+    <h3>No audit events yet</h3>
+    <p>Governance decisions made in the review queue will be appended here.</p>
+  </section>
+{% endif %}
+
+{% if historical_events %}
+<details class="historical-results audit-history">
+  <summary>Show Historical Logs</summary>
+  <section class="mapping-list">
+    {% for event in historical_events %}
+    <article class="panel audit-event historical">
+      <div class="summary">
+        <span>{{ event.action }}</span>
+        <span>{{ event.user }}</span>
+        <span>{{ event.domain|default('Assurance') }}</span>
+        {% if event.assigned_to %}
+          {% if team_lookup.get(event.assigned_to) %}
+          <span>Assigned to {{ team_lookup[event.assigned_to].name }}</span>
+          {% elif group_lookup.get(event.assigned_to) %}
+          <span>Assigned to {{ group_lookup[event.assigned_to].name }}</span>
+          {% else %}
+          <span>Assigned to {{ event.assigned_to }}</span>
+          {% endif %}
+        {% endif %}
+      </div>
+      <strong>{{ event.mapping }}</strong>
+      <p>
+        {{ event.reason or 'No reason supplied.' }}
+        {% if event.reason_flagged_for_review %}
+        <span class="reason-flag" title="{{ event.flag_note }}">Reason flagged for governance review</span>
+        {% endif %}
+      </p>
+      <p class="muted">{{ event.timestamp }}</p>
+    </article>
+    {% endfor %}
+  </section>
+</details>
+{% endif %}
+{% endblock %}

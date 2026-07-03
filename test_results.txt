@@ -1,0 +1,32 @@
+﻿============================= test session starts =============================
+platform win32 -- Python 3.14.4, pytest-9.1.1, pluggy-1.6.0 -- C:\Python314\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\conal\Documents\Codex\2026-06-25\files-mentioned-by-the-user-substr8\substr8
+plugins: anyio-4.13.0
+collecting ... collected 17 items
+
+tests/test_authority_weighting.py::test_high_authority_note_confidence_is_not_lower_than_low_authority_note PASSED [  5%]
+tests/test_authority_weighting.py::test_reasoning_names_team_member_and_role_for_weighted_notes PASSED [ 11%]
+tests/test_authority_weighting.py::test_weighting_clamps_confidence_and_preserves_none PASSED [ 17%]
+tests/test_demo_reset.py::test_reset_demo_state_clears_generated_review_state_and_preserves_audit PASSED [ 23%]
+tests/test_governance.py::test_approval_versions_and_audits PASSED       [ 29%]
+tests/test_governance.py::test_insufficient_evidence_cannot_be_approved PASSED [ 35%]
+tests/test_mapping_schema.py::test_mapping_output_never_targets_priority_directly PASSED [ 41%]
+tests/test_mapping_schema.py::test_insufficient_evidence_mapping_is_emitted PASSED [ 47%]
+tests/test_retrieval.py::test_retrieval_loads_actual_cited_records PASSED [ 52%]
+tests/test_retrieval.py::test_planted_insufficient_case_has_no_evidence PASSED [ 58%]
+tests/test_reviewer_reporting.py::test_assignment_sets_lock_status_and_persists_assignee PASSED [ 64%]
+tests/test_reviewer_reporting.py::test_assignment_unassignment_and_decision_are_distinct_audit_events PASSED [ 70%]
+tests/test_reviewer_reporting.py::test_decision_is_blocked_while_assigned PASSED [ 76%]
+tests/test_reviewer_reporting.py::test_assigned_mapping_excluded_from_version_cut PASSED [ 82%]
+tests/test_reviewer_reporting.py::test_reviewer_report_counts_actions PASSED [ 88%]
+tests/test_reviewer_reporting.py::test_reviewer_report_includes_current_unassigned_pre_decision_count PASSED [ 94%]
+tests/test_reviewer_reporting.py::test_revision_rate_detects_reversed_and_stable_approvals PASSED [100%]
+
+============================== warnings summary ===============================
+..\..\..\..\..\AppData\Roaming\Python\Python314\site-packages\_pytest\cacheprovider.py:469
+  C:\Users\conal\AppData\Roaming\Python\Python314\site-packages\_pytest\cacheprovider.py:469: PytestCacheWarning: could not create cache path C:\Users\conal\Documents\Codex\2026-06-25\files-mentioned-by-the-user-substr8\substr8\.pytest_cache\v\cache\nodeids: [WinError 183] Cannot create a file when that file already exists: 'C:\\Users\\conal\\Documents\\Codex\\2026-06-25\\files-mentioned-by-the-user-substr8\\substr8\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 17 passed, 1 warning in 0.28s ========================

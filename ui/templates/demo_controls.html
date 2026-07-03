@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+
+{% block title %}Substr8 Demo Controls{% endblock %}
+
+{% block content %}
+<section class="page-intro">
+  <p>Reset only the generated demo review state. Source evidence in data remains unchanged, and the audit log is preserved with a reset event appended.</p>
+</section>
+
+<section class="panel reset-panel">
+  <h3>Reset All Domains</h3>
+  <p class="muted">This clears generated review queues, assignees, approved mapping versions, cut substrate versions, and the active-version pointer for Assurance and Order Management &amp; Fulfillment.</p>
+  <form method="post" action="{{ url_for('demo_reset') }}" class="actions reset-form">
+    <label class="confirm-control">
+      <input type="checkbox" name="confirm" value="yes" required>
+      <span>I understand this resets all domain demo review state to pre-discovery.</span>
+    </label>
+    <button class="danger-button" type="submit">Reset Demo State</button>
+  </form>
+</section>
+{% endblock %}

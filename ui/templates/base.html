@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Substr8 Review{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Primary navigation">
+      <a class="wordmark" href="{{ url_for('index') }}">
+        <img class="wordmark-logo" src="{{ url_for('static', filename='SubStr8_Logo.png') }}" alt="Substr8 logo">
+      </a>
+
+      <nav class="nav-section" aria-label="Domains">
+        <h2>Domains</h2>
+        <a class="nav-item {{ 'active' if active_domain == 'assurance' else '' }}" href="{{ url_for('index') }}">
+          <span>Assurance</span>
+          <span class="scope-tag active-tag">Phase 1</span>
+        </a>
+        <a class="nav-item {{ 'active' if active_domain == 'order_management' else '' }}" href="{{ url_for('order_management') }}">
+          <span>Order Management &amp; Fulfillment</span>
+          <span class="scope-tag active-tag">Phase 1</span>
+        </a>
+        {% for domain in [
+          'Resource & Service Inventory',
+          'Service Activation & Provisioning',
+          'Billing & Revenue'
+        ] %}
+        <span class="nav-item disabled" aria-disabled="true">
+          <span>{{ domain }}</span>
+          <span class="scope-tag">Out of scope &middot; Phase 1</span>
+        </span>
+        {% endfor %}
+      </nav>
+
+      <nav class="nav-section" aria-label="Governance">
+        <h2>Governance</h2>
+        <a class="nav-item {{ 'active' if active_nav == 'review' else '' }}" href="{{ url_for('index') if active_domain != 'order_management' else url_for('order_management') }}">Review Queue</a>
+        <a class="nav-item {{ 'active' if active_nav == 'approved' else '' }}" href="{{ url_for('approved_substrates') }}">Approved Mappings</a>
+        <a class="nav-item {{ 'active' if active_nav == 'substrate_versions' else '' }}" href="{{ url_for('substrate_versions_page') }}">Substrate Versions</a>
+        <a class="nav-item {{ 'active' if active_nav == 'audit' else '' }}" href="{{ url_for('audit_log') }}">Audit Log</a>
+        <a class="nav-item {{ 'active' if active_nav == 'team' else '' }}" href="{{ url_for('team') }}">Team</a>
+      </nav>
+
+      <nav class="nav-section nav-section-secondary" aria-label="Demo administration">
+        <h2>Demo</h2>
+        <a class="nav-item {{ 'active' if active_nav == 'demo' else '' }}" href="{{ url_for('demo_controls') }}">Reset Demo</a>
+        <a class="nav-item {{ 'active' if active_nav == 'settings' else '' }}" href="{{ url_for('settings') }}">Settings</a>
+      </nav>
+    </aside>
+
+    <div class="workbench">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">{{ domain.source if domain is defined and domain else 'Governed integration substrates' }}{% if domain is defined and domain %} to {{ domain.target }}{% endif %}</p>
+          <h1>{{ view_title|default('Review Queue') }}</h1>
+        </div>
+        <div class="topbar-context">
+          <span>Mock Mode</span>
+          <span>No Auth</span>
+          <span>Local Evidence</span>
+        </div>
+      </header>
+
+      <main class="content">
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,27 @@
+{
+  "name": "TMF642 Alarm",
+  "version": "5.0.0-synthetic",
+  "alignment": "ITU-T X.733",
+  "fields": {
+    "id": {"type": "string", "required": true},
+    "alarmType": {"type": "string"},
+    "probableCause": {"type": "string"},
+    "perceivedSeverity": {
+      "type": "string",
+      "enum": ["critical", "major", "minor", "warning", "indeterminate", "cleared"]
+    },
+    "alarmRaisedTime": {"type": "datetime"},
+    "alarmChangedTime": {"type": "datetime"},
+    "sourceSystem": {"type": "string"},
+    "vendor": {"type": "string"},
+    "networkDomain": {"type": "string"},
+    "affectedResource": {"type": "string"},
+    "affectedService": {"type": "string"},
+    "siteId": {"type": "string"},
+    "deviceId": {"type": "string"},
+    "correlationId": {"type": "string"},
+    "parentAlarmId": {"type": "string"},
+    "specificProblem": {"type": "string"},
+    "additionalText": {"type": "string"}
+  }
+}

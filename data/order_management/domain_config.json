@@ -1,0 +1,37 @@
+{
+  "domain_key": "order_management",
+  "domain_label": "Order Management & Fulfillment",
+  "source_label": "TMF622 Product Order",
+  "target_label": "Oracle UIM (Inventory)",
+  "source_schema": "tmf622_product_order_schema.json",
+  "target_schema": "oracle_uim_inventory_schema.json",
+  "historical_records": "historical_records.jsonl",
+  "fixtures": "order_fixtures.jsonl",
+  "record_id_field": "record_id",
+  "candidate_mappings": [
+    {
+      "source_field": "orderType",
+      "destination_fields": ["status"],
+      "fixture_values": true,
+      "note_terms": ["disconnect", "new install", "change"]
+    },
+    {
+      "source_field": "serviceType",
+      "destination_fields": ["resourceType", "resourceSpecification"],
+      "fixture_values": true,
+      "note_terms": ["residential", "enterprise"]
+    },
+    {
+      "source_field": "bandwidth",
+      "destination_fields": ["resourceSpecification"],
+      "fixture_values": true,
+      "note_terms": ["bandwidth"]
+    },
+    {
+      "source_field": "accessTechnology",
+      "destination_fields": ["logicalDeviceName"],
+      "fixture_values": true,
+      "note_terms": ["access technology"]
+    }
+  ]
+}

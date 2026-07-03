@@ -1,0 +1,38 @@
+legacy_version: "2020.04-fulfillment-imperfect"
+rules:
+  - id: Legacy OM Rule 1
+    source_field: orderType
+    source_value: new install
+    destination_fields: [status]
+    outcome: {status: reserved}
+    note: New orders reserve inventory before activation.
+  - id: Legacy OM Rule 2
+    source_field: orderType
+    source_value: disconnect
+    destination_fields: [status]
+    outcome: {status: decommissioned}
+    note: Too aggressive; should verify dependent services first.
+  - id: Legacy OM Rule 3
+    source_field: serviceType
+    source_value: enterprise ethernet
+    destination_fields: [resourceType, resourceSpecification]
+    outcome: {resourceType: service, resourceSpecification: Enterprise Ethernet UNI}
+    note: Current enterprise service reservation.
+  - id: Legacy OM Rule 4
+    source_field: serviceType
+    source_value: enterprise ethernet
+    destination_fields: [resourceType, resourceSpecification]
+    outcome: {resourceType: logicalDevice, resourceSpecification: Legacy Ethernet Port}
+    note: Conflicting stale rule from pre-UIM inventory model.
+  - id: Legacy OM Rule 5
+    source_field: bandwidth
+    source_value: 1G
+    destination_fields: [resourceSpecification]
+    outcome: {resourceSpecification: GigE Access Bearer}
+    note: Uses stale bearer terminology but still partly useful.
+  - id: Legacy OM Rule 6
+    source_field: serviceType
+    source_value: residential broadband
+    destination_fields: [resourceType, resourceSpecification]
+    outcome: {resourceType: access, resourceSpecification: Residential Access Line}
+    note: Does not distinguish copper from fiber.

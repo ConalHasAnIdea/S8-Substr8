@@ -1,0 +1,10 @@
+groups:
+  - id: GRP-01
+    name: "#assurance-integration-review"
+    members: [TM-01, TM-04]
+  - id: GRP-02
+    name: "#vendor-escalation"
+    members: [TM-03, TM-06]
+  - id: GRP-03
+    name: "#fulfillment-substrate-review"
+    members: [TM-02, TM-05]

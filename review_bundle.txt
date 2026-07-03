@@ -1,0 +1,825 @@
+
+===== discovery\confidence.py =====
+
+def derive_confidence(supporting: int, conflicting: int) -> float | None:
+    """Transparent confidence score derived only from evidence counts."""
+    total = supporting + conflicting
+    if total == 0:
+        return None
+    agreement = supporting / total
+    volume_factor = min(1.0, total / 10)
+    dampened = agreement * (0.50 + (0.50 * volume_factor))
+    return round(dampened, 2)
+
+
+def apply_note_weighting(base_confidence: float | None, weighted_notes: list[tuple[str, float]]) -> tuple[float | None, str]:
+    """
+    Notes nudge existing evidence confidence toward their average authority by up
+    to 0.05; they never create confidence when evidence produced none.
+    """
+    if base_confidence is None:
+        return None, "Note authority weighting skipped because confidence is None."
+    if not weighted_notes:
+        return base_confidence, ""
+    average_weight = sum(weight for _, weight in weighted_notes) / len(weighted_notes)
+    adjustment = max(-0.05, min(0.05, (average_weight - 0.5) * 0.10))
+    adjusted = round(max(0.0, min(1.0, base_confidence + adjustment)), 2)
+    note_ids = ", ".join(note_id for note_id, _ in weighted_notes)
+    explanation = (
+        f"Authority weighting from {note_ids} averaged {average_weight:.2f}, "
+        f"adjusting confidence from {base_confidence:.2f} to {adjusted:.2f}."
+    )
+    return adjusted, explanation
+
+===== discovery\mock_discovery_engine.py =====
+
+from collections import Counter, defaultdict
+from pathlib import Path
+from typing import Any
+
+from .confidence import apply_note_weighting, derive_confidence
+from .discovery_engine import DiscoveryEngine
+from .evidence_model import MappingProposal
+from .retrieval import EvidenceRetriever
+from governance.policy_rules import apply_policy
+
+
+class MockDiscoveryEngine(DiscoveryEngine):
+    def discover(self, data_dir: Path) -> list[dict[str, Any]]:
+        retriever = EvidenceRetriever(data_dir)
+        if retriever.domain_config["domain_key"] != "assurance":
+            return self._discover_configured_domain(retriever)
+
+        proposals: list[MappingProposal] = []
+        proposals.append(self._severity_to_impact_urgency(retriever))
+
+        probable_causes = sorted(
+            {fixture["probableCause"] for fixture in retriever.fixtures}
+            | {ticket["probable_cause"] for ticket in retriever.tickets}
+        )
+        for cause in probable_causes:
+            proposals.append(self._probable_cause_assignment(cause, retriever))
+
+        return [apply_policy(proposal.to_dict()) for proposal in proposals]
+
+    def _discover_configured_domain(self, retriever: EvidenceRetriever) -> list[dict[str, Any]]:
+        proposals: list[MappingProposal] = []
+        for mapping_config in retriever.domain_config.get("candidate_mappings", []):
+            field = mapping_config["source_field"]
+            values = set(retriever.fixture_values_for(field))
+            for record in retriever.records:
+                if field in record.get("source", {}):
+                    values.add(record["source"][field])
+            for value in sorted(values):
+                proposals.append(self._configured_field_value_mapping(value, mapping_config, retriever))
+        return [apply_policy(proposal.to_dict()) for proposal in proposals]
+
+    def _configured_field_value_mapping(
+        self,
+        value: str,
+        mapping_config: dict[str, Any],
+        retriever: EvidenceRetriever,
+    ) -> MappingProposal:
+        source_field = mapping_config["source_field"]
+        destination_fields = mapping_config["destination_fields"]
+        records = retriever.records_by_source(source_field, value)
+        rules = retriever.legacy_rules_for(source_field, value)
+        notes = retriever.notes_for([value, source_field] + mapping_config.get("note_terms", []))
+        if not records and not rules and not notes:
+            return MappingProposal(
+                source_field=source_field,
+                source_value=value,
+                destination_fields=destination_fields,
+                transformation_logic=f"{value} -> no proposed {', '.join(destination_fields)}",
+                confidence_score=None,
+                reasoning=(
+                    f"No historical records, operator notes, or legacy rules mention {source_field}={value}. "
+                    "The mock engine refuses to fabricate a mapping and routes this value to a human."
+                ),
+                evidence_citations=[],
+                governance_status="Insufficient Evidence - Human Required",
+                evidence_summary={"supporting": 0, "conflicting": 0},
+            )
+
+        correct = [record for record in records if record["mapping_correct"] and not record["later_correction"]]
+        outcome_counts = Counter(
+            tuple(record.get("outcome", {}).get(destination) for destination in destination_fields)
+            for record in correct
+        )
+        if outcome_counts:
+            selected_outcome, support_count = outcome_counts.most_common(1)[0]
+            selected = dict(zip(destination_fields, selected_outcome))
+        elif rules:
+            selected = {field: rules[0].get("outcome", {}).get(field) for field in destination_fields}
+            support_count = 0
+        else:
+            selected = {field: "Human Review" for field in destination_fields}
+            support_count = 0
+
+        supporting = [
+            record for record in correct
+            if all(record.get("outcome", {}).get(destination) == selected[destination] for destination in destination_fields)
+        ]
+        conflicting = [
+            record for record in records
+            if record not in supporting
+        ]
+
+        legacy_outcomes = {
+            tuple(rule.get("outcome", {}).get(destination) for destination in destination_fields)
+            for rule in rules
+        }
+        if len(legacy_outcomes) > 1:
+            conflicting.append({
+                retriever.domain_config["record_id_field"]: ", ".join(rule["id"] for rule in rules),
+                "outcome": "legacy conflict",
+            })
+
+        base_confidence = derive_confidence(len(supporting), len(conflicting))
+        confidence, weighting_explanation = apply_note_weighting(base_confidence, retriever.weighted_notes(notes))
+        record_id_field = retriever.domain_config["record_id_field"]
+        citations = [record[record_id_field] for record in supporting + conflicting if record_id_field in record]
+        citations += [note["id"] for note in notes] + [rule["id"] for rule in rules]
+        selected_text = ", ".join(f"{field}={selected[field]}" for field in destination_fields)
+        conflict_ids = [record[record_id_field] for record in conflicting if record_id_field in record]
+        reasoning = (
+            f"Derived from {len(records)} historical {source_field}={value} records: "
+            f"{len(supporting)} support {selected_text} and {len(conflicting)} conflict or were corrected."
+        )
+        if support_count:
+            reasoning += f" The leading outcome appeared in {support_count} correct records."
+        if conflict_ids:
+            reasoning += f" Conflicting citations: {', '.join(conflict_ids)}."
+        if notes:
+            reasoning += f" Operator context included {', '.join(note['id'] for note in notes)}."
+            author_fragments = retriever.note_author_fragments(notes)
+            if author_fragments:
+                reasoning += f" Note authority: {'; '.join(author_fragments)}."
+        if weighting_explanation:
+            reasoning += f" {weighting_explanation}"
+        if len(legacy_outcomes) > 1:
+            reasoning += " Legacy rules disagree with each other, so policy should require review."
+
+        return MappingProposal(
+            source_field=source_field,
+            source_value=value,
+            destination_fields=destination_fields,
+            transformation_logic=f"{value} -> {selected_text}",
+            confidence_score=confidence,
+            reasoning=reasoning,
+            evidence_citations=citations,
+            governance_status="Pending Approval",
+            evidence_summary={"supporting": len(supporting), "conflicting": len(conflicting)},
+        )
+
+    def _severity_to_impact_urgency(self, retriever: EvidenceRetriever) -> MappingProposal:
+        tickets_by_severity: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for ticket in retriever.tickets:
+            tickets_by_severity[ticket["perceived_severity"]].append(ticket)
+
+        lines: list[str] = []
+        supporting: list[dict[str, Any]] = []
+        conflicting: list[dict[str, Any]] = []
+        for severity in retriever.alarm_schema["fields"]["perceivedSeverity"]["enum"]:
+            tickets = tickets_by_severity.get(severity, [])
+            if not tickets:
+                lines.append(f"{severity} -> insufficient evidence")
+                continue
+            correct = [ticket for ticket in tickets if ticket["mapping_correct"] and not ticket["later_correction"]]
+            outcomes = Counter((ticket["resulting_impact"], ticket["resulting_urgency"]) for ticket in correct)
+            if not outcomes:
+                lines.append(f"{severity} -> insufficient evidence")
+                conflicting.extend(tickets)
+                continue
+            (impact, urgency), support_count = outcomes.most_common(1)[0]
+            severity_support = [
+                ticket for ticket in correct
+                if (ticket["resulting_impact"], ticket["resulting_urgency"]) == (impact, urgency)
+            ]
+            severity_conflicts = [
+                ticket for ticket in tickets
+                if ticket not in severity_support
+            ]
+            supporting.extend(severity_support)
+            conflicting.extend(severity_conflicts)
+            lines.append(
+                f"{severity} -> impact={impact}, urgency={urgency} "
+                f"({support_count} of {len(tickets)} historical tickets)"
+            )
+
+        notes = retriever.notes_for(["critical", "unknown customer impact"])
+        rules = retriever.legacy_rules_for("perceivedSeverity", "critical") + retriever.legacy_rules_for("perceivedSeverity", "major")
+        base_confidence = derive_confidence(len(supporting), len(conflicting))
+        confidence, weighting_explanation = apply_note_weighting(base_confidence, retriever.weighted_notes(notes))
+        citations = [ticket["ticket_id"] for ticket in supporting + conflicting] + [note["id"] for note in notes] + [rule["id"] for rule in rules]
+        conflicts = [ticket["ticket_id"] for ticket in conflicting]
+        reasoning = (
+            f"Derived from {len(supporting) + len(conflicting)} historical severity examples: "
+            f"{len(supporting)} support the selected impact/urgency outcomes and "
+            f"{len(conflicting)} conflict or were later corrected."
+        )
+        if conflicts:
+            reasoning += f" Conflicting cases ({', '.join(conflicts)}) reduced confidence."
+        if notes:
+            reasoning += f" {notes[0]['id']} reinforces the critical alarm handling policy."
+            author_fragments = retriever.note_author_fragments(notes)
+            if author_fragments:
+                reasoning += f" Note authority: {'; '.join(author_fragments)}."
+        if weighting_explanation:
+            reasoning += f" {weighting_explanation}"
+        reasoning += " ServiceNow priority is derived downstream from the operator impact x urgency matrix."
+        return MappingProposal(
+            source_field="perceivedSeverity",
+            destination_fields=["impact", "urgency"],
+            transformation_logic="\n".join(lines) + "\npriority is derived by ServiceNow Priority Data Lookup",
+            confidence_score=confidence,
+            reasoning=reasoning,
+            evidence_citations=citations,
+            governance_status="Pending Approval",
+            evidence_summary={"supporting": len(supporting), "conflicting": len(conflicting)},
+        )
+
+    def _probable_cause_assignment(self, cause: str, retriever: EvidenceRetriever) -> MappingProposal:
+        tickets = retriever.tickets_by("probableCause", cause)
+        rules = retriever.legacy_rules_for("probableCause", cause)
+        notes = retriever.notes_for([cause])
+        if not tickets and not rules and not notes:
+            return MappingProposal(
+                source_field="probableCause",
+                source_value=cause,
+                destination_fields=["assignment_group"],
+                transformation_logic=f"{cause} -> no proposed assignment_group",
+                confidence_score=None,
+                reasoning=(
+                    f"No historical tickets, operator notes, or legacy rules mention probableCause={cause}. "
+                    "The mock engine refuses to fabricate a mapping and routes this value to a human."
+                ),
+                evidence_citations=[],
+                governance_status="Insufficient Evidence - Human Required",
+                evidence_summary={"supporting": 0, "conflicting": 0},
+            )
+
+        correct = [ticket for ticket in tickets if ticket["mapping_correct"] and not ticket["later_correction"]]
+        outcomes = Counter(ticket["assignment_group"] for ticket in correct)
+        if outcomes:
+            assignment_group, support_count = outcomes.most_common(1)[0]
+        elif rules:
+            assignment_group = rules[0]["outcome"]["assignment_group"]
+            support_count = 0
+        else:
+            assignment_group = "Human Review"
+            support_count = 0
+
+        supporting = [ticket for ticket in correct if ticket["assignment_group"] == assignment_group]
+        conflicting = [
+            ticket for ticket in tickets
+            if ticket["assignment_group"] != assignment_group or not ticket["mapping_correct"] or ticket["later_correction"]
+        ]
+
+        legacy_outcomes = {
+            rule.get("outcome", {}).get("assignment_group")
+            for rule in rules
+            if "assignment_group" in rule.get("outcome", {})
+        }
+        if len(legacy_outcomes) > 1:
+            synthetic_conflict = {
+                "ticket_id": ", ".join(rule["id"] for rule in rules),
+                "assignment_group": "legacy conflict",
+            }
+            conflicting.append(synthetic_conflict)
+
+        base_confidence = derive_confidence(len(supporting), len(conflicting))
+        confidence, weighting_explanation = apply_note_weighting(base_confidence, retriever.weighted_notes(notes))
+        citations = [ticket["ticket_id"] for ticket in supporting + conflicting if "ticket_id" in ticket]
+        citations += [note["id"] for note in notes] + [rule["id"] for rule in rules]
+        conflict_ids = [ticket["ticket_id"] for ticket in conflicting if "ticket_id" in ticket]
+        reasoning = (
+            f"Derived from {len(tickets)} historical {cause} tickets: {len(supporting)} support "
+            f"assignment_group={assignment_group} and {len(conflicting)} conflict or were corrected."
+        )
+        if support_count:
+            reasoning += f" The leading outcome appeared in {support_count} correct tickets."
+        if conflict_ids:
+            reasoning += f" Conflicting citations: {', '.join(conflict_ids)}."
+        if notes:
+            reasoning += f" Operator context included {', '.join(note['id'] for note in notes)}."
+            author_fragments = retriever.note_author_fragments(notes)
+            if author_fragments:
+                reasoning += f" Note authority: {'; '.join(author_fragments)}."
+        if weighting_explanation:
+            reasoning += f" {weighting_explanation}"
+        if len(legacy_outcomes) > 1:
+            reasoning += " Legacy rules disagree with each other, so policy should require review."
+
+        return MappingProposal(
+            source_field="probableCause",
+            source_value=cause,
+            destination_fields=["assignment_group"],
+            transformation_logic=f"{cause} -> assignment_group={assignment_group}",
+            confidence_score=confidence,
+            reasoning=reasoning,
+            evidence_citations=citations,
+            governance_status="Pending Approval",
+            evidence_summary={"supporting": len(supporting), "conflicting": len(conflicting)},
+        )
+
+
+def run_discovery(data_dir: Path, output_dir: Path, output_stem: str = "proposed_mapping") -> list[dict[str, Any]]:
+    import yaml
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    proposals = MockDiscoveryEngine().discover(data_dir)
+    (output_dir / f"{output_stem}.yaml").write_text(yaml.safe_dump({"mappings": proposals}, sort_keys=False), encoding="utf-8")
+    lines = ["# Proposed Substr8 Mapping", ""]
+    for item in proposals:
+        label = item["source_field"]
+        if item.get("source_value"):
+            label += f"={item['source_value']}"
+        lines.extend([
+            f"## {label}",
+            f"- Destinations: {', '.join(item['destination_fields'])}",
+            f"- Confidence: {item['confidence_score']}",
+            f"- Status: {item['governance_status']}",
+            f"- Citations: {', '.join(item['evidence_citations']) or 'none'}",
+            "",
+            item["reasoning"],
+            "",
+        ])
+    (output_dir / f"{output_stem}.md").write_text("\n".join(lines), encoding="utf-8")
+    return proposals
+
+===== discovery\retrieval.py =====
+
+import json
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+
+def load_json(path: Path) -> dict[str, Any]:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def load_jsonl(path: Path) -> list[dict[str, Any]]:
+    return [
+        json.loads(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+
+def load_yaml(path: Path) -> dict[str, Any]:
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+def load_team_roster(data_dir: Path) -> dict[str, dict[str, Any]]:
+    roster_path = data_dir / "team_roster.yaml"
+    if not roster_path.exists() and data_dir.parent != data_dir:
+        roster_path = data_dir.parent / "team_roster.yaml"
+    if not roster_path.exists():
+        return {}
+    roster = load_yaml(roster_path)
+    return {member["id"]: member for member in roster.get("team", [])}
+
+
+def load_operator_notes(path: Path) -> list[dict[str, str]]:
+    notes: list[dict[str, str]] = []
+    current: dict[str, str] | None = None
+    body: list[str] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.startswith("## Operator Note"):
+            if current:
+                current["text"] = "\n".join(body).strip()
+                notes.append(current)
+            title = line.replace("## ", "").strip()
+            note_id = title.split(":", 1)[0]
+            current = {"id": note_id, "title": title}
+            body = []
+        elif current:
+            body.append(line)
+    if current:
+        current["text"] = "\n".join(body).strip()
+        notes.append(current)
+    return notes
+
+
+class EvidenceRetriever:
+    def __init__(self, data_dir: Path):
+        self.data_dir = data_dir
+        config_path = data_dir / "domain_config.json"
+        self.domain_config = load_json(config_path) if config_path.exists() else {
+            "domain_key": "assurance",
+            "domain_label": "Assurance",
+            "source_label": "TMF642 Alarm Management",
+            "target_label": "ServiceNow Incident",
+            "source_schema": "tmf642_alarm_schema.json",
+            "target_schema": "servicenow_incident_schema.json",
+            "historical_records": "historical_tickets.jsonl",
+            "fixtures": "alarm_fixtures.jsonl",
+            "record_id_field": "ticket_id",
+        }
+        self.alarm_schema = load_json(data_dir / self.domain_config["source_schema"])
+        self.incident_schema = load_json(data_dir / self.domain_config["target_schema"])
+        self.source_schema = self.alarm_schema
+        self.target_schema = self.incident_schema
+        self.legacy_mapping = load_yaml(data_dir / "legacy_mapping.yaml")
+        self.tickets = load_jsonl(data_dir / self.domain_config["historical_records"])
+        self.records = self.tickets
+        self.fixtures = load_jsonl(data_dir / self.domain_config["fixtures"])
+        self.notes = load_operator_notes(data_dir / "operator_notes.md")
+        self.team_roster = load_team_roster(data_dir)
+        self._attach_note_authors()
+
+    def _attach_note_authors(self) -> None:
+        meta_path = self.data_dir / "operator_notes_meta.yaml"
+        if not meta_path.exists():
+            return
+        note_authors = load_yaml(meta_path).get("notes", {})
+        for note in self.notes:
+            author_id = note_authors.get(note["id"])
+            if author_id:
+                note["author_id"] = author_id
+                note["author"] = self.team_roster.get(author_id)
+
+    def weighted_notes(self, notes: list[dict[str, Any]]) -> list[tuple[str, float]]:
+        weighted: list[tuple[str, float]] = []
+        for note in notes:
+            author = note.get("author")
+            if author:
+                weighted.append((note["id"], float(author["authority_weight"])))
+        return weighted
+
+    def note_author_fragments(self, notes: list[dict[str, Any]]) -> list[str]:
+        fragments: list[str] = []
+        for note in notes:
+            author = note.get("author")
+            if author:
+                fragments.append(
+                    f"{note['id']} ({author['name']}, {author['role']}, authority {author['authority_weight']})"
+                )
+        return fragments
+
+    def tickets_by(self, field: str, value: str) -> list[dict[str, Any]]:
+        ticket_key = {
+            "perceivedSeverity": "perceived_severity",
+            "probableCause": "probable_cause",
+            "vendor": "vendor",
+        }.get(field, field)
+        return [ticket for ticket in self.tickets if ticket.get(ticket_key) == value]
+
+    def records_by_source(self, field: str, value: str) -> list[dict[str, Any]]:
+        if self.domain_config["domain_key"] == "assurance":
+            return self.tickets_by(field, value)
+        return [
+            record for record in self.records
+            if record.get("source", {}).get(field) == value
+        ]
+
+    def fixture_values_for(self, field: str) -> list[str]:
+        values: set[str] = set()
+        for fixture in self.fixtures:
+            if field in fixture:
+                values.add(fixture[field])
+            if field in fixture.get("characteristic", {}):
+                values.add(fixture["characteristic"][field])
+        return sorted(values)
+
+    def legacy_rules_for(self, field: str, value: str) -> list[dict[str, Any]]:
+        return [
+            rule
+            for rule in self.legacy_mapping.get("rules", [])
+            if rule.get("source_field") == field and rule.get("source_value") == value
+        ]
+
+    def notes_for(self, terms: list[str]) -> list[dict[str, str]]:
+        matches: list[dict[str, str]] = []
+        lowered_terms = [term.lower().replace("_", " ") for term in terms]
+        for note in self.notes:
+            haystack = f"{note['title']} {note['text']}".lower().replace("_", " ")
+            if any(term in haystack for term in lowered_terms):
+                matches.append(note)
+        return matches
+
+    def evidence_by_citation(self) -> dict[str, dict[str, Any]]:
+        lookup: dict[str, dict[str, Any]] = {}
+        record_id_field = self.domain_config.get("record_id_field", "ticket_id")
+        lookup.update({record[record_id_field]: record for record in self.records})
+        lookup.update({note["id"]: note for note in self.notes})
+        lookup.update({rule["id"]: rule for rule in self.legacy_mapping.get("rules", [])})
+        return lookup
+
+===== discovery\evidence_model.py =====
+
+from dataclasses import dataclass, field
+from typing import Any
+
+
+@dataclass
+class EvidenceBundle:
+    supporting: list[dict[str, Any]] = field(default_factory=list)
+    conflicting: list[dict[str, Any]] = field(default_factory=list)
+    notes: list[dict[str, str]] = field(default_factory=list)
+    legacy_rules: list[dict[str, Any]] = field(default_factory=list)
+
+    @property
+    def citations(self) -> list[str]:
+        ids: list[str] = []
+        ids.extend(item["ticket_id"] for item in self.supporting)
+        ids.extend(item["ticket_id"] for item in self.conflicting)
+        ids.extend(item["id"] for item in self.notes)
+        ids.extend(item["id"] for item in self.legacy_rules)
+        return ids
+
+    @property
+    def supporting_count(self) -> int:
+        return len(self.supporting)
+
+    @property
+    def conflicting_count(self) -> int:
+        return len(self.conflicting)
+
+
+@dataclass
+class MappingProposal:
+    source_field: str
+    destination_fields: list[str]
+    transformation_logic: str
+    confidence_score: float | None
+    reasoning: str
+    evidence_citations: list[str]
+    governance_status: str
+    source_value: str | None = None
+    evidence_summary: dict[str, int] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        data = {
+            "source_field": self.source_field,
+            "destination_fields": self.destination_fields,
+            "transformation_logic": self.transformation_logic,
+            "confidence_score": self.confidence_score,
+            "reasoning": self.reasoning,
+            "evidence_citations": self.evidence_citations,
+            "governance_status": self.governance_status,
+            "evidence_summary": self.evidence_summary,
+        }
+        if self.source_value is not None:
+            data["source_value"] = self.source_value
+        return data
+
+===== governance\policy_rules.py =====
+
+CONFIDENCE_THRESHOLD = 0.70
+
+
+def apply_policy(mapping: dict) -> dict:
+    if mapping["governance_status"].startswith("Insufficient Evidence"):
+        return mapping
+    if mapping.get("confidence_score") is None:
+        mapping["governance_status"] = "Insufficient Evidence - Human Required"
+    elif mapping["confidence_score"] < CONFIDENCE_THRESHOLD:
+        mapping["governance_status"] = "Needs Clarification"
+    elif mapping.get("evidence_summary", {}).get("conflicting", 0) > 0:
+        mapping["governance_status"] = "Needs Clarification"
+    else:
+        mapping["governance_status"] = "Pending Approval"
+    if "priority" in mapping.get("destination_fields", []):
+        mapping["governance_status"] = "Rejected"
+    return mapping
+
+===== tests\test_confidence_derivation.py ===== (NOT FOUND)
+
+
+===== tests\test_authority_weighting.py =====
+
+from pathlib import Path
+
+from discovery.confidence import apply_note_weighting
+from discovery.mock_discovery_engine import MockDiscoveryEngine
+
+
+DATA_DIR = Path(__file__).resolve().parents[1] / "data"
+
+
+def test_high_authority_note_confidence_is_not_lower_than_low_authority_note():
+    high_confidence, _ = apply_note_weighting(0.70, [("Operator Note 2", 1.0)])
+    low_confidence, _ = apply_note_weighting(0.70, [("Operator Note 6", 0.3)])
+
+    assert high_confidence >= low_confidence
+
+
+def test_reasoning_names_team_member_and_role_for_weighted_notes():
+    mappings = MockDiscoveryEngine().discover(DATA_DIR)
+    severity_mapping = next(mapping for mapping in mappings if mapping["source_field"] == "perceivedSeverity")
+
+    assert "Jordan Reyes" in severity_mapping["reasoning"]
+    assert "Client Operations Lead" in severity_mapping["reasoning"]
+    assert "authority 1.0" in severity_mapping["reasoning"]
+
+
+def test_weighting_clamps_confidence_and_preserves_none():
+    high_clamped, _ = apply_note_weighting(0.99, [("Operator Note 2", 1.0)])
+    low_clamped, _ = apply_note_weighting(0.01, [("Operator Note 6", 0.0)])
+    none_confidence, _ = apply_note_weighting(None, [("Operator Note 2", 1.0)])
+
+    assert high_clamped == 1.0
+    assert low_clamped == 0.0
+    assert none_confidence is None
+
+===== tests\test_reviewer_reporting.py =====
+
+import json
+from pathlib import Path
+
+import yaml
+
+import pytest
+
+from governance.approval_model import assign_mapping, is_decision_locked, load_proposals, record_decision, unassign_mapping
+from governance.reporting import reviewer_activity_report
+from governance.versioning import add_approved_version
+
+
+DATA_DIR = Path(__file__).resolve().parents[1] / "data"
+
+
+def write_proposals(output_dir: Path) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "proposed_mapping.yaml").write_text(
+        yaml.safe_dump({
+            "mappings": [
+                {
+                    "source_field": "probableCause",
+                    "source_value": "link_down",
+                    "destination_fields": ["assignment_group"],
+                    "governance_status": "Pending Approval",
+                }
+            ]
+        }),
+        encoding="utf-8",
+    )
+
+
+def write_audit(output_dir: Path, events: list[dict]) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "audit_log.jsonl").write_text(
+        "\n".join(json.dumps(event) for event in events) + "\n",
+        encoding="utf-8",
+    )
+
+
+def test_assignment_sets_lock_status_and_persists_assignee(tmp_path):
+    write_proposals(tmp_path)
+
+    assign_mapping(tmp_path, 0, "TM-01", "tester", "route it")
+
+    mapping = load_proposals(tmp_path)[0]
+    event = json.loads((tmp_path / "audit_log.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    assert mapping["governance_status"] == "Assigned / Awaiting Decision"
+    assert mapping["assigned_to"] == "TM-01"
+    assert is_decision_locked(mapping) is True
+    assert event["action"] == "assigned"
+    assert event["assigned_to"] == "TM-01"
+
+
+def test_assignment_unassignment_and_decision_are_distinct_audit_events(tmp_path):
+    write_proposals(tmp_path)
+
+    assign_mapping(tmp_path, 0, "TM-01", "sam", "please review")
+    unassign_mapping(tmp_path, 0, "sam", "review complete")
+    record_decision(tmp_path, 0, "Approved", "jordan", "approved after review")
+
+    events = [
+        json.loads(line)
+        for line in (tmp_path / "audit_log.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert [event["action"] for event in events] == ["assigned", "unassigned", "Approved"]
+    assert events[0]["assigned_to"] == "TM-01"
+    assert events[1]["assigned_to"] == "TM-01"
+    assert "assigned_to" not in events[2]
+
+
+def test_decision_is_blocked_while_assigned(tmp_path):
+    write_proposals(tmp_path)
+    assign_mapping(tmp_path, 0, "TM-01", "tester", "route it")
+
+    with pytest.raises(ValueError):
+        record_decision(tmp_path, 0, "Approved", "tester", "should be blocked")
+
+
+def test_assigned_mapping_excluded_from_version_cut(tmp_path):
+    write_proposals(tmp_path)
+    assign_mapping(tmp_path, 0, "TM-01", "tester", "route it")
+
+    approved = [
+        mapping for mapping in load_proposals(tmp_path)
+        if mapping["governance_status"] == "Approved"
+    ]
+    version = add_approved_version(tmp_path, approved, "tester", "cut preview test")
+
+    assert version["mappings"] == []
+
+
+def test_reviewer_report_counts_actions(tmp_path):
+    write_audit(tmp_path, [
+        {"timestamp": "2026-01-01T00:00:00Z", "mapping": "A", "action": "assigned", "assigned_to": "TM-01"},
+        {"timestamp": "2026-01-01T00:01:00Z", "mapping": "A", "action": "Approved", "assigned_to": "TM-01"},
+        {"timestamp": "2026-01-01T00:02:00Z", "mapping": "B", "action": "Rejected", "assigned_to": "TM-01"},
+        {"timestamp": "2026-01-01T00:03:00Z", "mapping": "C", "action": "Needs Clarification", "assigned_to": "TM-02"},
+    ])
+
+    report = {row["id"]: row for row in reviewer_activity_report(tmp_path, DATA_DIR)}
+
+    assert report["TM-01"]["Assigned"] == 1
+    assert report["TM-01"]["Approved"] == 1
+    assert report["TM-01"]["Rejected"] == 1
+    assert report["TM-01"]["total_actions"] == 3
+    assert report["TM-02"]["Needs Clarification"] == 1
+    assert report["TM-02"]["total_actions"] == 1
+
+
+def test_revision_rate_detects_reversed_and_stable_approvals(tmp_path):
+    write_audit(tmp_path, [
+        {"timestamp": "2026-01-01T00:00:00Z", "mapping": "stable", "action": "Approved", "assigned_to": "TM-01"},
+        {"timestamp": "2026-01-01T00:01:00Z", "mapping": "revised", "action": "Approved", "assigned_to": "TM-02"},
+        {"timestamp": "2026-01-01T00:02:00Z", "mapping": "revised", "action": "Needs Clarification", "assigned_to": "TM-04"},
+    ])
+
+    report = {row["id"]: row for row in reviewer_activity_report(tmp_path, DATA_DIR)}
+
+    assert report["TM-01"]["revision_rate"] == 0.0
+    assert report["TM-02"]["revision_rate"] == 100.0
+
+===== data\team_roster.yaml =====
+
+# Authority weights are illustrative Phase 1 inputs set by project leadership.
+# They are not computed, inferred, or algorithmically derived.
+team:
+  - id: TM-01
+    name: "Jordan Reyes"
+    role: "Client Operations Lead"
+    organization: "Operator"
+    authority_weight: 1.0
+    slack_handle: "@jordan.reyes"
+  - id: TM-02
+    name: "Priya Nair"
+    role: "Integration Architect"
+    organization: "Delivery Partner"
+    authority_weight: 0.9
+    slack_handle: "@priya.nair"
+  - id: TM-03
+    name: "Mateo Alvarez"
+    role: "Vendor Field Engineer"
+    organization: "Vendor A"
+    authority_weight: 0.4
+    slack_handle: "@mateo.alvarez"
+  - id: TM-04
+    name: "Sam Whitfield"
+    role: "Network SME"
+    organization: "Operator"
+    authority_weight: 0.85
+    slack_handle: "@sam.whitfield"
+  - id: TM-05
+    name: "Lin Chen"
+    role: "Fulfillment Systems Lead"
+    organization: "Operator"
+    authority_weight: 0.95
+    slack_handle: "@lin.chen"
+  - id: TM-06
+    name: "Avery Brooks"
+    role: "Vendor Support Analyst"
+    organization: "Vendor C"
+    authority_weight: 0.3
+    slack_handle: "@avery.brooks"
+
+===== data\team_groups.yaml =====
+
+groups:
+  - id: GRP-01
+    name: "#assurance-integration-review"
+    members: [TM-01, TM-04]
+  - id: GRP-02
+    name: "#vendor-escalation"
+    members: [TM-03, TM-06]
+  - id: GRP-03
+    name: "#fulfillment-substrate-review"
+    members: [TM-02, TM-05]
+
+===== output\substrate_versions.jsonl ===== (NOT FOUND)
+
+
+===== output\audit_log.jsonl =====
+
+
+{"timestamp": "2026-06-26T06:12:03.275331+00:00", "mapping": "perceivedSeverity", "action": "Approved", "user": "local-reviewer", "reason": ""}
+{"timestamp": "2026-06-26T06:16:26.150026+00:00", "mapping": "perceivedSeverity", "action": "Approved", "user": "local-reviewer", "reason": ""}
+{"timestamp": "2026-06-26T14:56:15.554974+00:00", "domain": "Order Management & Fulfillment", "mapping": "orderType=change", "action": "Needs Clarification", "user": "local-reviewer", "reason": "domain audit verification"}
+{"timestamp": "2026-06-26T22:48:15.137562+00:00", "domain": "Assurance", "mapping": "perceivedSeverity", "action": "assigned", "user": "local-reviewer", "reason": "verify lock", "assigned_to": "TM-01"}
+{"timestamp": "2026-06-26T22:48:15.253215+00:00", "domain": "Assurance", "mapping": "perceivedSeverity", "action": "unassigned", "user": "local-reviewer", "reason": "verify unlock", "assigned_to": "TM-01"}
+{"timestamp": "2026-06-26T22:54:29.796372+00:00", "domain": "Assurance", "mapping": "probableCause=solar_flare_noise", "action": "assigned", "user": "local-reviewer", "reason": "", "assigned_to": "TM-04"}
+{"timestamp": "2026-06-26T23:39:52.738901+00:00", "domain": "Assurance", "mapping": "perceivedSeverity", "action": "Needs Clarification", "user": "local-reviewer", "reason": ""}
+{"timestamp": "2026-06-26T23:39:54.641312+00:00", "domain": "Assurance", "mapping": "perceivedSeverity", "action": "Needs Clarification", "user": "local-reviewer", "reason": ""}
+{"timestamp": "2026-06-26T23:40:12.406768+00:00", "domain": "Assurance", "mapping": "perceivedSeverity", "action": "Approved", "user": "local-reviewer", "reason": ""}
+{"timestamp": "2026-06-26T23:43:34.056132+00:00", "domain": "Order Management & Fulfillment", "mapping": "serviceType=private 5g slice", "action": "assigned", "user": "local-reviewer", "reason": "", "assigned_to": "GRP-01"}
+{"timestamp": "2026-06-26T23:43:46.089970+00:00", "domain": "Order Management & Fulfillment", "mapping": "serviceType=private 5g slice", "action": "unassigned", "user": "local-reviewer", "reason": "", "assigned_to": "GRP-01"}
+{"timestamp": "2026-06-26T23:44:16.105051+00:00", "domain": "Order Management & Fulfillment", "mapping": "serviceType=private 5g slice", "action": "assigned", "user": "local-reviewer", "reason": "Insufficient evidence, team can we find more corpus for this ", "assigned_to": "GRP-01"}

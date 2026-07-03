@@ -1,0 +1,769 @@
+
+===== data\tmf642_alarm_schema.json =====
+
+{
+  "name": "TMF642 Alarm",
+  "version": "5.0.0-synthetic",
+  "alignment": "ITU-T X.733",
+  "fields": {
+    "id": {"type": "string", "required": true},
+    "alarmType": {"type": "string"},
+    "probableCause": {"type": "string"},
+    "perceivedSeverity": {
+      "type": "string",
+      "enum": ["critical", "major", "minor", "warning", "indeterminate", "cleared"]
+    },
+    "alarmRaisedTime": {"type": "datetime"},
+    "alarmChangedTime": {"type": "datetime"},
+    "sourceSystem": {"type": "string"},
+    "vendor": {"type": "string"},
+    "networkDomain": {"type": "string"},
+    "affectedResource": {"type": "string"},
+    "affectedService": {"type": "string"},
+    "siteId": {"type": "string"},
+    "deviceId": {"type": "string"},
+    "correlationId": {"type": "string"},
+    "parentAlarmId": {"type": "string"},
+    "specificProblem": {"type": "string"},
+    "additionalText": {"type": "string"}
+  }
+}
+
+===== data\servicenow_incident_schema.json =====
+
+{
+  "name": "ServiceNow Incident",
+  "version": "synthetic-local",
+  "fields": {
+    "number": {"type": "string", "read_only": true},
+    "short_description": {"type": "string"},
+    "description": {"type": "string"},
+    "urgency": {"type": "choice", "choices": ["1-High", "2-Medium", "3-Low"]},
+    "impact": {"type": "choice", "choices": ["1-High", "2-Medium", "3-Low"]},
+    "priority": {
+      "type": "choice",
+      "read_only": true,
+      "derived_from": ["impact", "urgency"],
+      "note": "Priority is produced by Priority Data Lookup; mappings must not set it directly."
+    },
+    "category": {"type": "string"},
+    "subcategory": {"type": "string"},
+    "cmdb_ci": {"type": "string"},
+    "assignment_group": {"type": "string"},
+    "correlation_id": {"type": "string"},
+    "state": {"type": "string"},
+    "opened_at": {"type": "datetime"},
+    "work_notes": {"type": "string"}
+  },
+  "priority_lookup": {
+    "1-High|1-High": "1-Critical",
+    "1-High|2-Medium": "2-High",
+    "1-High|3-Low": "3-Moderate",
+    "2-Medium|1-High": "2-High",
+    "2-Medium|2-Medium": "3-Moderate",
+    "2-Medium|3-Low": "4-Low",
+    "3-Low|1-High": "3-Moderate",
+    "3-Low|2-Medium": "4-Low",
+    "3-Low|3-Low": "5-Planning"
+  }
+}
+
+===== data\legacy_mapping.yaml =====
+
+legacy_version: "2019.11-imperfect"
+rules:
+  - id: Legacy Rule 1
+    source_field: perceivedSeverity
+    source_value: critical
+    destination_fields: [impact, urgency]
+    outcome: {impact: 1-High, urgency: 1-High}
+    note: Old blanket critical mapping. Still mostly correct.
+  - id: Legacy Rule 2
+    source_field: perceivedSeverity
+    source_value: major
+    destination_fields: [impact, urgency]
+    outcome: {impact: 2-Medium, urgency: 2-Medium}
+    note: Outdated; ignores customer-facing service loss.
+  - id: Legacy Rule 3
+    source_field: probableCause
+    source_value: link_down
+    destination_fields: [assignment_group]
+    outcome: {assignment_group: Transport NOC}
+    note: Main transport handoff.
+  - id: Legacy Rule 4
+    source_field: probableCause
+    source_value: link_down
+    destination_fields: [assignment_group]
+    outcome: {assignment_group: Access NOC}
+    note: Duplicate stale rule from pre-consolidation access tooling.
+  - id: Legacy Rule 5
+    source_field: vendor
+    source_value: VendorB
+    destination_fields: [work_notes]
+    outcome: {work_notes: "Append legacy MIB slot/port workaround"}
+    note: Vendor-specific workaround; stale field name sn_custom_slot was removed.
+  - id: Legacy Rule 6
+    source_field: probableCause
+    source_value: power_failure
+    destination_fields: [assignment_group]
+    outcome: {assignment_group: Field Operations}
+    note: Usually site power, but misses UPS telemetry exceptions.
+  - id: Legacy Rule 7
+    source_field: probableCause
+    source_value: optical_degrade
+    destination_fields: [assignment_group]
+    outcome: {assignment_group: Optical Assurance}
+    note: VendorC quirks require manual validation.
+  - id: Legacy Rule 8
+    source_field: suppression
+    source_value: duplicate_correlationId
+    destination_fields: [state]
+    outcome: {state: Suppressed}
+    note: Suppress duplicates, but never for critical alarms.
+  - id: Legacy Rule 9
+    source_field: probableCause
+    source_value: sip_trunk_failure
+    destination_fields: [assignment_group]
+    outcome: {assignment_group: Voice NOC}
+    note: Enterprise Voice special routing.
+
+===== data\historical_tickets.jsonl =====
+
+{"ticket_id":"TKT-1001","source_alarm_id":"ALM-1001","vendor":"VendorA","network_domain":"transport","probable_cause":"link_down","perceived_severity":"critical","affected_resource":"RTR-CHI-01:xe-0/0/0","affected_service":"Enterprise Ethernet","resulting_impact":"1-High","resulting_urgency":"1-High","resulting_incident_priority":"1-Critical","assignment_group":"Transport NOC","operator_commentary":"Customer-facing link hard down.","human_resolution_notes":"Fiber cut confirmed.","mapping_correct":true,"later_correction":null}
+{"ticket_id":"TKT-1002","source_alarm_id":"ALM-1002","vendor":"VendorA","network_domain":"transport","probable_cause":"link_down","perceived_severity":"critical","affected_resource":"RTR-CHI-02:xe-0/0/1","affected_service":"Enterprise Ethernet","resulting_impact":"1-High","resulting_urgency":"1-High","resulting_incident_priority":"1-Critical","assignment_group":"Transport NOC","operator_commentary":"Critical customer transport outage.","human_resolution_notes":"Card failure replaced.","mapping_correct":true,"later_correction":null}
+{"ticket_id":"TKT-1003","source_alarm_id":"ALM-1003","vendor":"VendorB","network_domain":"transport","probable_cause":"link_down","perceived_severity":"critical","affected_resource":"RTR-DAL-04:ge-1/0/9","affected_service":"Wholesale Ethernet","resulting_impact":"1-High","resulting_urgency":"1-High","resulting_incident_priority":"1-Critical","assignment_group":"Transport NOC","operator_commentary":"Service down, vendor port naming oddity.","human_resolution_notes":"Mapped correctly after slot normalization.","mapping_correct":true,"later_correction":null}
+{"ticket_id":"TKT-1004","source_alarm_id":"ALM-1004","vendor":"VendorA","network_domain":"transport","probable_cause":"link_down","perceived_severity":"critical","affected_resource":"RTR-MSP-01:xe-0/0/2","affected_service":"Enterprise Ethernet","resulting_impact":"1-High","resulting_urgency":"1-High","resulting_incident_priority":"1-Critical","assignment_group":"Transport NOC","operator_commentary":"Loss of signal on customer handoff.","human_resolution_notes":"Provider maintenance mistake.","mapping_correct":true,"later_correction":null}
+{"ticket_id":"TKT-1005","source_alarm_id":"ALM-1005","vendor":"VendorA","network_domain":"transport","probable_cause":"link_down","perceived_severity":"critical","affected_resource":"RTR-OMA-01:xe-0/0/3","affected_service":"Enterprise Ethernet","resulting_impact":"1-High","resulting_urgency":"1-High","resulting_incident_priority":"1-Critical","assignment_group":"Transport NOC","operator_commentary":"Critical loss of service.","human_resolution_notes":"Optic replaced.","mapping_correct":true,"later_correction":null}
+{"ticket_id":"TKT-1006","source_alarm_id":"ALM-1006","vendor":"VendorB","network_domain":"transport","probable_cause":"link_down","perceived_severity":"critical","affected_resource":"RTR-KC-02:ge-0/0/4","affected_service":"Enterprise Ethernet","resulting_impact":"1-High","resulting_urgency":"1-High","resulting_incident_priority":"1-Critical","assignment_group":"Transport NOC","operator_commentary":"Critical link_down with active SLA.","human_resolution_notes":"Remote hands cleaned fiber.","mapping_correct":true,"later_correction":null}
+{"ticket_id":"TKT-1007","source_alarm_id":"ALM-1007","vendor":"VendorA","network_domain":"transport","probable_cause":"link_down","perceived_severity":"critical","affected_resource":"RTR-TUL-01:xe-0/0/0","affected_service":"Enterprise Ethernet","resulting_impact":"1-High","resulting_urgency":"1-High","resulting_incident_priority":"1-Critical","assignment_group":"Transport NOC","operator_commentary":"Critical service outage.","human_resolution_notes":"Correct escalation.","mapping_correct":true,"later_correction":null}
+{"ticket_id":"TKT-1008","source_alarm_id":"ALM-1008","vendor":"VendorA","network_domain":"transport","probable_cause":"link_down","perceived_severity":"critical","affected_resource":"RTR-DES-02:xe-0/0/0","affected_service":"Enterprise Ethernet","resulting_impact":"1-High","resulting_urgency":"1-High","resulting_incident_priority":"1-Critical","assignment_group":"Transport NOC","operator_commentary":"Customer-facing hard down.","human_resolution_notes":"Correct impact and urgency.","mapping_correct":true,"later_correction":null}
+{"ticket_id":"TKT-1009","source_alarm_id":"ALM-1009","vendor":"VendorB","network_domain":"transport","probable_cause":"link_down","perceived_severity":"critical","affected_resource":"RTR-MKE-01:ge-0/0/8","affected_service":"Enterprise Ethernet","resulting_impact":"1-High","resulting_urgency":"1-High","resulting_incident_priority":"1-Critical","assignment_group":"Transport NOC","operator_commentary":"Critical alarm created P1 by matrix.","human_resolution_notes":"Correct.","mapping_correct":true,"later_correction":null}
+{"ticket_id":"TKT-1010","source_alarm_id":"ALM-1010","vendor":"VendorA","network_domain":"transport","probable_cause":"link_down","perceived_severity":"critical","affected_resource":"RTR-LIT-01:xe-0/0/6","affected_service":"Enterprise Ethernet","resulting_impact":"1-High","resulting_urgency":"1-High","resulting_incident_priority":"1-Critical","assignment_group":"Transport NOC","operator_commentary":"Critical outage.","human_resolution_notes":"Correct.","mapping_correct":true,"later_correction":null}
+{"ticket_id":"TKT-1011","source_alarm_id":"ALM-1011","vendor":"VendorC","network_domain":"optical","probable_cause":"optical_degrade","perceived_severity":"critical","affected_resource":"DWDM-STL-01:line-1","affected_service":"Core wavelength","resulting_impact":"1-High","resulting_urgency":"1-High","resulting_incident_priority":"1-Critical","assignment_group":"Optical Assurance","operator_commentary":"Critical BER on protected core.","human_resolution_notes":"Correct.","mapping_correct":true,"later_correction":null}
+{"ticket_id":"TKT-1012","source_alarm_id":"ALM-1012","vendor":"VendorA","network_domain":"transport","probable_cause":"link_down","perceived_severity":"critical","affected_resource":"RTR-CIN-03:xe-0/0/7","affected_service":"Enterprise Ethernet","resulting_impact":"1-High","resulting_urgency":"1-High","resulting_incident_priority":"1-Critical","assignment_group":"Transport NOC","operator_commentary":"Critical alarm, customer impact clear.","human_resolution_notes":"Correct.","mapping_correct":true,"later_correction":null}
+{"ticket_id":"TKT-1013","source_alarm_id":"ALM-1013","vendor":"VendorA","network_domain":"transport","probable_cause":"link_down","perceived_severity":"critical","affected_resource":"RTR-CHI-01:xe-0/0/0","affected_service":"Lab Ethernet","resulting_impact":"2-Medium","resulting_urgency":"2-Medium","resulting_incident_priority":"3-Moderate","assignment_group":"Transport NOC","operator_commentary":"Initially treated as customer-facing.","human_resolution_notes":"Corrected after lab-only service identified.","mapping_correct":false,"later_correction":"Changed impact/urgency to Medium/Medium because service was non-customer-facing."}
+{"ticket_id":"TKT-1014","source_alarm_id":"ALM-1014","vendor":"VendorB","network_domain":"transport","probable_cause":"link_down","perceived_severity":"critical","affected_resource":"RTR-AUS-02:ge-0/0/2","affected_service":"Unknown","resulting_impact":"3-Low","resulting_urgency":"2-Medium","resulting_incident_priority":"4-Low","assignment_group":"Access NOC","operator_commentary":"Unknown impact and stale legacy access group used.","human_resolution_notes":"Should have been human review under unknown customer impact.","mapping_correct":false,"later_correction":"Routed to human review; assignment_group corrected to Transport NOC."}
+{"ticket_id":"TKT-1015","source_alarm_id":"ALM-1015","vendor":"VendorA","network_domain":"transport","probable_cause":"link_down","perceived_severity":"major","affected_resource":"RTR-SAT-01:xe-0/0/0","affected_service":"Enterprise Ethernet","resulting_impact":"1-High","resulting_urgency":"2-Medium","resulting_incident_priority":"2-High","assignment_group":"Transport NOC","operator_commentary":"Major but customer-facing outage.","human_resolution_notes":"Correct major customer-facing treatment.","mapping_correct":true,"later_correction":null}
+{"ticket_id":"TKT-1016","source_alarm_id":"ALM-1016","vendor":"VendorA","network_domain":"transport","probable_cause":"link_down","perceived_severity":"major","affected_resource":"RTR-SAT-02:xe-0/0/1","affected_service":"Enterprise Ethernet","resulting_impact":"1-High","resulting_urgency":"2-Medium","resulting_incident_priority":"2-High","assignment_group":"Transport NOC","operator_commentary":"Customer circuit impacted.","human_resolution_notes":"Correct.","mapping_correct":true,"later_correction":null}
+{"ticket_id":"TKT-1017","source_alarm_id":"ALM-1017","vendor":"VendorB","network_domain":"transport","probable_cause":"link_down","perceived_severity":"major","affected_resource":"RTR-HOU-02:ge-0/0/3","affected_service":"Wholesale Ethernet","resulting_impact":"1-High","resulting_urgency":"2-Medium","resulting_incident_priority":"2-High","assignment_group":"Transport NOC","operator_commentary":"Major customer-facing link down.","human_resolution_notes":"Correct.","mapping_correct":true,"later_correction":null}
+{"ticket_id":"TKT-1018","source_alarm_id":"ALM-1018","vendor":"VendorA","network_domain":"access","probable_cause":"equipment_malfunction","perceived_severity":"major","affected_resource":"DSLAM-OKC-03:shelf-2","affected_service":"Residential Broadband","resulting_impact":"2-Medium","resulting_urgency":"2-Medium","resulting_incident_priority":"3-Moderate","assignment_group":"Access NOC","operator_commentary":"Single access shelf degraded.","human_resolution_notes":"Correct.","mapping_correct":true,"later_correction":null}
+{"ticket_id":"TKT-1019","source_alarm_id":"ALM-1019","vendor":"VendorC","network_domain":"optical","probable_cause":"optical_degrade","perceived_severity":"major","affected_resource":"DWDM-STL-02:line-7","affected_service":"Core wavelength","resulting_impact":"2-Medium","resulting_urgency":"2-Medium","resulting_incident_priority":"3-Moderate","assignment_group":"Optical Assurance","operator_commentary":"BER degrade but traffic protected.","human_resolution_notes":"Correct with manual validation.","mapping_correct":true,"later_correction":null}
+{"ticket_id":"TKT-1020","source_alarm_id":"ALM-1020","vendor":"VendorC","network_domain":"optical","probable_cause":"optical_degrade","perceived_severity":"major","affected_resource":"DWDM-MEM-01:line-3","affected_service":"Core wavelength","resulting_impact":"1-High","resulting_urgency":"2-Medium","resulting_incident_priority":"2-High","assignment_group":"Optical Assurance","operator_commentary":"Unprotected wavelength, customer impact likely.","human_resolution_notes":"Corrected by optical SME after review.","mapping_correct":false,"later_correction":"Marked as conflicting; route future VendorC optical_degrade to clarification if context missing."}
+{"ticket_id":"TKT-1021","source_alarm_id":"ALM-1021","vendor":"VendorA","network_domain":"access","probable_cause":"equipment_malfunction","perceived_severity":"minor","affected_resource":"DSLAM-TUL-08:card-4","affected_service":"Residential Broadband","resulting_impact":"3-Low","resulting_urgency":"3-Low","resulting_incident_priority":"5-Planning","assignment_group":"Access NOC","operator_commentary":"Minor degradation.","human_resolution_notes":"Correct.","mapping_correct":true,"later_correction":null}
+{"ticket_id":"TKT-1022","source_alarm_id":"ALM-1022","vendor":"VendorB","network_domain":"transport","probable_cause":"packet_loss","perceived_severity":"minor","affected_resource":"RTR-FTW-01:ge-0/0/5","affected_service":"Enterprise Ethernet","resulting_impact":"3-Low","resulting_urgency":"3-Low","resulting_incident_priority":"5-Planning","assignment_group":"Transport NOC","operator_commentary":"Low packet loss, monitored.","human_resolution_notes":"Correct.","mapping_correct":true,"later_correction":null}
+{"ticket_id":"TKT-1023","source_alarm_id":"ALM-1023","vendor":"VendorA","network_domain":"voice","probable_cause":"sip_trunk_failure","perceived_severity":"major","affected_resource":"SBC-CHI-01:trunk-12","affected_service":"Enterprise Voice","resulting_impact":"1-High","resulting_urgency":"2-Medium","resulting_incident_priority":"2-High","assignment_group":"Voice NOC","operator_commentary":"Enterprise Voice follows special routing.","human_resolution_notes":"Correct.","mapping_correct":true,"later_correction":null}
+{"ticket_id":"TKT-1024","source_alarm_id":"ALM-1024","vendor":"VendorA","network_domain":"voice","probable_cause":"sip_trunk_failure","perceived_severity":"major","affected_resource":"SBC-DAL-01:trunk-3","affected_service":"Enterprise Voice","resulting_impact":"1-High","resulting_urgency":"2-Medium","resulting_incident_priority":"2-High","assignment_group":"Voice NOC","operator_commentary":"Same Enterprise Voice pattern.","human_resolution_notes":"Correct.","mapping_correct":true,"later_correction":null}
+{"ticket_id":"TKT-1025","source_alarm_id":"ALM-1025","vendor":"VendorA","network_domain":"power","probable_cause":"power_failure","perceived_severity":"major","affected_resource":"SITE-LIT-22:ups-a","affected_service":"Cell Site Backhaul","resulting_impact":"2-Medium","resulting_urgency":"2-Medium","resulting_incident_priority":"3-Moderate","assignment_group":"Field Operations","operator_commentary":"Single site on battery.","human_resolution_notes":"Correct.","mapping_correct":true,"later_correction":null}
+{"ticket_id":"TKT-1026","source_alarm_id":"ALM-1026","vendor":"VendorA","network_domain":"power","probable_cause":"power_failure","perceived_severity":"critical","affected_resource":"SITE-LIT-22:utility","affected_service":"Cell Site Backhaul","resulting_impact":"1-High","resulting_urgency":"1-High","resulting_incident_priority":"1-Critical","assignment_group":"Field Operations","operator_commentary":"Commercial power failure affecting hub site.","human_resolution_notes":"Correct.","mapping_correct":true,"later_correction":null}
+{"ticket_id":"TKT-1027","source_alarm_id":"ALM-1027","vendor":"VendorB","network_domain":"transport","probable_cause":"link_down","perceived_severity":"warning","affected_resource":"RTR-OMA-04:ge-0/0/6","affected_service":"Backup Ethernet","resulting_impact":"3-Low","resulting_urgency":"3-Low","resulting_incident_priority":"5-Planning","assignment_group":"Transport NOC","operator_commentary":"Backup link down only.","human_resolution_notes":"Correct.","mapping_correct":true,"later_correction":null}
+{"ticket_id":"TKT-1028","source_alarm_id":"ALM-1028","vendor":"VendorC","network_domain":"optical","probable_cause":"optical_degrade","perceived_severity":"warning","affected_resource":"DWDM-DSM-01:line-4","affected_service":"Core wavelength","resulting_impact":"3-Low","resulting_urgency":"3-Low","resulting_incident_priority":"5-Planning","assignment_group":"Optical Assurance","operator_commentary":"Monitor until BER threshold exceeded.","human_resolution_notes":"Correct.","mapping_correct":true,"later_correction":null}
+{"ticket_id":"TKT-1029","source_alarm_id":"ALM-1029","vendor":"VendorA","network_domain":"transport","probable_cause":"duplicate_alarm","perceived_severity":"major","affected_resource":"RTR-SAT-01:xe-0/0/0","affected_service":"Enterprise Ethernet","resulting_impact":"1-High","resulting_urgency":"2-Medium","resulting_incident_priority":"2-High","assignment_group":"Transport NOC","operator_commentary":"Duplicate correlated into parent ticket TKT-1015.","human_resolution_notes":"Correct to enrich existing incident, not create new one.","mapping_correct":true,"later_correction":null}
+{"ticket_id":"TKT-1030","source_alarm_id":"ALM-1030","vendor":"VendorX","network_domain":"unknown","probable_cause":"unknown_failure","perceived_severity":"indeterminate","affected_resource":"UNK-001","affected_service":"Unknown","resulting_impact":"2-Medium","resulting_urgency":"2-Medium","resulting_incident_priority":"3-Moderate","assignment_group":"Service Desk Triage","operator_commentary":"Unknown vendor should have been review only.","human_resolution_notes":"Triage opened manually.","mapping_correct":false,"later_correction":"Policy changed to require human review for unknown vendors."}
+
+===== data\operator_notes.md =====
+
+# Operator Assurance Notes
+
+## Operator Note 1: Transport VendorA Escalation
+VendorA transport link_down alarms on customer-facing Ethernet services should use High impact and High urgency because they usually indicate service loss.
+
+## Operator Note 2: Critical Alarm Suppression
+Critical alarms are never auto-suppressed. They require visible incident creation unless explicitly cleared by a correlated parent outage ticket.
+
+## Operator Note 3: Alarm Storm Correlation
+Alarm storms should correlate by siteId and probableCause before incident creation. Duplicate alarms with the same correlationId should enrich work notes rather than open duplicate incidents.
+
+## Operator Note 4: Unknown Customer Impact
+Unknown customer impact requires human review. Do not infer impact from severity alone when affectedService is missing or marked unknown.
+
+## Operator Note 5: Enterprise Voice Routing
+Enterprise Voice signaling and sip_trunk_failure alarms route to Voice NOC. Major Enterprise Voice outages use High impact and Medium urgency unless more than one site is down.
+
+## Operator Note 6: VendorC Optical Validation
+VendorC optical_degrade alarms often require manual validation. If historical evidence conflicts, route to Optical Assurance for clarification.
+
+===== data\alarm_fixtures.jsonl =====
+
+{"id":"ALM-9001","probableCause":"link_down","perceivedSeverity":"critical","vendor":"VendorA","networkDomain":"transport","affectedResource":"RTR-CHI-01:xe-0/0/0","affectedService":"Enterprise Ethernet","siteId":"CHI-01","correlationId":"CORR-9001","specificProblem":"Loss of signal","additionalText":"Customer-facing transport down"}
+{"id":"ALM-9002","probableCause":"optical_degrade","perceivedSeverity":"major","vendor":"VendorC","networkDomain":"optical","affectedResource":"DWDM-STL-02:line-7","affectedService":"Core wavelength","siteId":"STL-02","correlationId":"CORR-9002","specificProblem":"High BER","additionalText":"VendorC reports pre-FEC degradation"}
+{"id":"ALM-9003","probableCause":"solar_flare_noise","perceivedSeverity":"warning","vendor":"VendorZ","networkDomain":"satellite","affectedResource":"SAT-DEN-01","affectedService":"Backhaul telemetry","siteId":"DEN-77","correlationId":"CORR-9003","specificProblem":"Unclassified ionospheric noise","additionalText":"Planted insufficient-evidence case"}
+
+===== discovery\retrieval.py =====
+
+import json
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+
+def load_json(path: Path) -> dict[str, Any]:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def load_jsonl(path: Path) -> list[dict[str, Any]]:
+    return [
+        json.loads(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+
+def load_yaml(path: Path) -> dict[str, Any]:
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+def load_team_roster(data_dir: Path) -> dict[str, dict[str, Any]]:
+    roster_path = data_dir / "team_roster.yaml"
+    if not roster_path.exists() and data_dir.parent != data_dir:
+        roster_path = data_dir.parent / "team_roster.yaml"
+    if not roster_path.exists():
+        return {}
+    roster = load_yaml(roster_path)
+    return {member["id"]: member for member in roster.get("team", [])}
+
+
+def load_operator_notes(path: Path) -> list[dict[str, str]]:
+    notes: list[dict[str, str]] = []
+    current: dict[str, str] | None = None
+    body: list[str] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.startswith("## Operator Note"):
+            if current:
+                current["text"] = "\n".join(body).strip()
+                notes.append(current)
+            title = line.replace("## ", "").strip()
+            note_id = title.split(":", 1)[0]
+            current = {"id": note_id, "title": title}
+            body = []
+        elif current:
+            body.append(line)
+    if current:
+        current["text"] = "\n".join(body).strip()
+        notes.append(current)
+    return notes
+
+
+class EvidenceRetriever:
+    def __init__(self, data_dir: Path):
+        self.data_dir = data_dir
+        config_path = data_dir / "domain_config.json"
+        self.domain_config = load_json(config_path) if config_path.exists() else {
+            "domain_key": "assurance",
+            "domain_label": "Assurance",
+            "source_label": "TMF642 Alarm Management",
+            "target_label": "ServiceNow Incident",
+            "source_schema": "tmf642_alarm_schema.json",
+            "target_schema": "servicenow_incident_schema.json",
+            "historical_records": "historical_tickets.jsonl",
+            "fixtures": "alarm_fixtures.jsonl",
+            "record_id_field": "ticket_id",
+        }
+        self.alarm_schema = load_json(data_dir / self.domain_config["source_schema"])
+        self.incident_schema = load_json(data_dir / self.domain_config["target_schema"])
+        self.source_schema = self.alarm_schema
+        self.target_schema = self.incident_schema
+        self.legacy_mapping = load_yaml(data_dir / "legacy_mapping.yaml")
+        self.tickets = load_jsonl(data_dir / self.domain_config["historical_records"])
+        self.records = self.tickets
+        self.fixtures = load_jsonl(data_dir / self.domain_config["fixtures"])
+        self.notes = load_operator_notes(data_dir / "operator_notes.md")
+        self.team_roster = load_team_roster(data_dir)
+        self._attach_note_authors()
+
+    def _attach_note_authors(self) -> None:
+        meta_path = self.data_dir / "operator_notes_meta.yaml"
+        if not meta_path.exists():
+            return
+        note_authors = load_yaml(meta_path).get("notes", {})
+        for note in self.notes:
+            author_id = note_authors.get(note["id"])
+            if author_id:
+                note["author_id"] = author_id
+                note["author"] = self.team_roster.get(author_id)
+
+    def weighted_notes(self, notes: list[dict[str, Any]]) -> list[tuple[str, float]]:
+        weighted: list[tuple[str, float]] = []
+        for note in notes:
+            author = note.get("author")
+            if author:
+                weighted.append((note["id"], float(author["authority_weight"])))
+        return weighted
+
+    def note_author_fragments(self, notes: list[dict[str, Any]]) -> list[str]:
+        fragments: list[str] = []
+        for note in notes:
+            author = note.get("author")
+            if author:
+                fragments.append(
+                    f"{note['id']} ({author['name']}, {author['role']}, authority {author['authority_weight']})"
+                )
+        return fragments
+
+    def tickets_by(self, field: str, value: str) -> list[dict[str, Any]]:
+        ticket_key = {
+            "perceivedSeverity": "perceived_severity",
+            "probableCause": "probable_cause",
+            "vendor": "vendor",
+        }.get(field, field)
+        return [ticket for ticket in self.tickets if ticket.get(ticket_key) == value]
+
+    def records_by_source(self, field: str, value: str) -> list[dict[str, Any]]:
+        if self.domain_config["domain_key"] == "assurance":
+            return self.tickets_by(field, value)
+        return [
+            record for record in self.records
+            if record.get("source", {}).get(field) == value
+        ]
+
+    def fixture_values_for(self, field: str) -> list[str]:
+        values: set[str] = set()
+        for fixture in self.fixtures:
+            if field in fixture:
+                values.add(fixture[field])
+            if field in fixture.get("characteristic", {}):
+                values.add(fixture["characteristic"][field])
+        return sorted(values)
+
+    def legacy_rules_for(self, field: str, value: str) -> list[dict[str, Any]]:
+        return [
+            rule
+            for rule in self.legacy_mapping.get("rules", [])
+            if rule.get("source_field") == field and rule.get("source_value") == value
+        ]
+
+    def notes_for(self, terms: list[str]) -> list[dict[str, str]]:
+        matches: list[dict[str, str]] = []
+        lowered_terms = [term.lower().replace("_", " ") for term in terms]
+        for note in self.notes:
+            haystack = f"{note['title']} {note['text']}".lower().replace("_", " ")
+            if any(term in haystack for term in lowered_terms):
+                matches.append(note)
+        return matches
+
+    def evidence_by_citation(self) -> dict[str, dict[str, Any]]:
+        lookup: dict[str, dict[str, Any]] = {}
+        record_id_field = self.domain_config.get("record_id_field", "ticket_id")
+        lookup.update({record[record_id_field]: record for record in self.records})
+        lookup.update({note["id"]: note for note in self.notes})
+        lookup.update({rule["id"]: rule for rule in self.legacy_mapping.get("rules", [])})
+        return lookup
+
+===== discovery\evidence_model.py =====
+
+from dataclasses import dataclass, field
+from typing import Any
+
+
+@dataclass
+class EvidenceBundle:
+    supporting: list[dict[str, Any]] = field(default_factory=list)
+    conflicting: list[dict[str, Any]] = field(default_factory=list)
+    notes: list[dict[str, str]] = field(default_factory=list)
+    legacy_rules: list[dict[str, Any]] = field(default_factory=list)
+
+    @property
+    def citations(self) -> list[str]:
+        ids: list[str] = []
+        ids.extend(item["ticket_id"] for item in self.supporting)
+        ids.extend(item["ticket_id"] for item in self.conflicting)
+        ids.extend(item["id"] for item in self.notes)
+        ids.extend(item["id"] for item in self.legacy_rules)
+        return ids
+
+    @property
+    def supporting_count(self) -> int:
+        return len(self.supporting)
+
+    @property
+    def conflicting_count(self) -> int:
+        return len(self.conflicting)
+
+
+@dataclass
+class MappingProposal:
+    source_field: str
+    destination_fields: list[str]
+    transformation_logic: str
+    confidence_score: float | None
+    reasoning: str
+    evidence_citations: list[str]
+    governance_status: str
+    source_value: str | None = None
+    evidence_summary: dict[str, int] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        data = {
+            "source_field": self.source_field,
+            "destination_fields": self.destination_fields,
+            "transformation_logic": self.transformation_logic,
+            "confidence_score": self.confidence_score,
+            "reasoning": self.reasoning,
+            "evidence_citations": self.evidence_citations,
+            "governance_status": self.governance_status,
+            "evidence_summary": self.evidence_summary,
+        }
+        if self.source_value is not None:
+            data["source_value"] = self.source_value
+        return data
+
+===== discovery\discovery_engine.py =====
+
+from abc import ABC, abstractmethod
+from pathlib import Path
+from typing import Any
+
+
+class DiscoveryEngine(ABC):
+    @abstractmethod
+    def discover(self, data_dir: Path) -> list[dict[str, Any]]:
+        """Return proposed mappings in the shared Substr8 proposal shape."""
+
+===== discovery\mock_discovery_engine.py =====
+
+from collections import Counter, defaultdict
+from pathlib import Path
+from typing import Any
+
+from .confidence import apply_note_weighting, derive_confidence
+from .discovery_engine import DiscoveryEngine
+from .evidence_model import MappingProposal
+from .retrieval import EvidenceRetriever
+from governance.policy_rules import apply_policy
+
+
+class MockDiscoveryEngine(DiscoveryEngine):
+    def discover(self, data_dir: Path) -> list[dict[str, Any]]:
+        retriever = EvidenceRetriever(data_dir)
+        if retriever.domain_config["domain_key"] != "assurance":
+            return self._discover_configured_domain(retriever)
+
+        proposals: list[MappingProposal] = []
+        proposals.append(self._severity_to_impact_urgency(retriever))
+
+        probable_causes = sorted(
+            {fixture["probableCause"] for fixture in retriever.fixtures}
+            | {ticket["probable_cause"] for ticket in retriever.tickets}
+        )
+        for cause in probable_causes:
+            proposals.append(self._probable_cause_assignment(cause, retriever))
+
+        return [apply_policy(proposal.to_dict()) for proposal in proposals]
+
+    def _discover_configured_domain(self, retriever: EvidenceRetriever) -> list[dict[str, Any]]:
+        proposals: list[MappingProposal] = []
+        for mapping_config in retriever.domain_config.get("candidate_mappings", []):
+            field = mapping_config["source_field"]
+            values = set(retriever.fixture_values_for(field))
+            for record in retriever.records:
+                if field in record.get("source", {}):
+                    values.add(record["source"][field])
+            for value in sorted(values):
+                proposals.append(self._configured_field_value_mapping(value, mapping_config, retriever))
+        return [apply_policy(proposal.to_dict()) for proposal in proposals]
+
+    def _configured_field_value_mapping(
+        self,
+        value: str,
+        mapping_config: dict[str, Any],
+        retriever: EvidenceRetriever,
+    ) -> MappingProposal:
+        source_field = mapping_config["source_field"]
+        destination_fields = mapping_config["destination_fields"]
+        records = retriever.records_by_source(source_field, value)
+        rules = retriever.legacy_rules_for(source_field, value)
+        notes = retriever.notes_for([value, source_field] + mapping_config.get("note_terms", []))
+        if not records and not rules and not notes:
+            return MappingProposal(
+                source_field=source_field,
+                source_value=value,
+                destination_fields=destination_fields,
+                transformation_logic=f"{value} -> no proposed {', '.join(destination_fields)}",
+                confidence_score=None,
+                reasoning=(
+                    f"No historical records, operator notes, or legacy rules mention {source_field}={value}. "
+                    "The mock engine refuses to fabricate a mapping and routes this value to a human."
+                ),
+                evidence_citations=[],
+                governance_status="Insufficient Evidence - Human Required",
+                evidence_summary={"supporting": 0, "conflicting": 0},
+            )
+
+        correct = [record for record in records if record["mapping_correct"] and not record["later_correction"]]
+        outcome_counts = Counter(
+            tuple(record.get("outcome", {}).get(destination) for destination in destination_fields)
+            for record in correct
+        )
+        if outcome_counts:
+            selected_outcome, support_count = outcome_counts.most_common(1)[0]
+            selected = dict(zip(destination_fields, selected_outcome))
+        elif rules:
+            selected = {field: rules[0].get("outcome", {}).get(field) for field in destination_fields}
+            support_count = 0
+        else:
+            selected = {field: "Human Review" for field in destination_fields}
+            support_count = 0
+
+        supporting = [
+            record for record in correct
+            if all(record.get("outcome", {}).get(destination) == selected[destination] for destination in destination_fields)
+        ]
+        conflicting = [
+            record for record in records
+            if record not in supporting
+        ]
+
+        legacy_outcomes = {
+            tuple(rule.get("outcome", {}).get(destination) for destination in destination_fields)
+            for rule in rules
+        }
+        if len(legacy_outcomes) > 1:
+            conflicting.append({
+                retriever.domain_config["record_id_field"]: ", ".join(rule["id"] for rule in rules),
+                "outcome": "legacy conflict",
+            })
+
+        base_confidence = derive_confidence(len(supporting), len(conflicting))
+        confidence, weighting_explanation = apply_note_weighting(base_confidence, retriever.weighted_notes(notes))
+        record_id_field = retriever.domain_config["record_id_field"]
+        citations = [record[record_id_field] for record in supporting + conflicting if record_id_field in record]
+        citations += [note["id"] for note in notes] + [rule["id"] for rule in rules]
+        selected_text = ", ".join(f"{field}={selected[field]}" for field in destination_fields)
+        conflict_ids = [record[record_id_field] for record in conflicting if record_id_field in record]
+        reasoning = (
+            f"Derived from {len(records)} historical {source_field}={value} records: "
+            f"{len(supporting)} support {selected_text} and {len(conflicting)} conflict or were corrected."
+        )
+        if support_count:
+            reasoning += f" The leading outcome appeared in {support_count} correct records."
+        if conflict_ids:
+            reasoning += f" Conflicting citations: {', '.join(conflict_ids)}."
+        if notes:
+            reasoning += f" Operator context included {', '.join(note['id'] for note in notes)}."
+            author_fragments = retriever.note_author_fragments(notes)
+            if author_fragments:
+                reasoning += f" Note authority: {'; '.join(author_fragments)}."
+        if weighting_explanation:
+            reasoning += f" {weighting_explanation}"
+        if len(legacy_outcomes) > 1:
+            reasoning += " Legacy rules disagree with each other, so policy should require review."
+
+        return MappingProposal(
+            source_field=source_field,
+            source_value=value,
+            destination_fields=destination_fields,
+            transformation_logic=f"{value} -> {selected_text}",
+            confidence_score=confidence,
+            reasoning=reasoning,
+            evidence_citations=citations,
+            governance_status="Pending Approval",
+            evidence_summary={"supporting": len(supporting), "conflicting": len(conflicting)},
+        )
+
+    def _severity_to_impact_urgency(self, retriever: EvidenceRetriever) -> MappingProposal:
+        tickets_by_severity: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for ticket in retriever.tickets:
+            tickets_by_severity[ticket["perceived_severity"]].append(ticket)
+
+        lines: list[str] = []
+        supporting: list[dict[str, Any]] = []
+        conflicting: list[dict[str, Any]] = []
+        for severity in retriever.alarm_schema["fields"]["perceivedSeverity"]["enum"]:
+            tickets = tickets_by_severity.get(severity, [])
+            if not tickets:
+                lines.append(f"{severity} -> insufficient evidence")
+                continue
+            correct = [ticket for ticket in tickets if ticket["mapping_correct"] and not ticket["later_correction"]]
+            outcomes = Counter((ticket["resulting_impact"], ticket["resulting_urgency"]) for ticket in correct)
+            if not outcomes:
+                lines.append(f"{severity} -> insufficient evidence")
+                conflicting.extend(tickets)
+                continue
+            (impact, urgency), support_count = outcomes.most_common(1)[0]
+            severity_support = [
+                ticket for ticket in correct
+                if (ticket["resulting_impact"], ticket["resulting_urgency"]) == (impact, urgency)
+            ]
+            severity_conflicts = [
+                ticket for ticket in tickets
+                if ticket not in severity_support
+            ]
+            supporting.extend(severity_support)
+            conflicting.extend(severity_conflicts)
+            lines.append(
+                f"{severity} -> impact={impact}, urgency={urgency} "
+                f"({support_count} of {len(tickets)} historical tickets)"
+            )
+
+        notes = retriever.notes_for(["critical", "unknown customer impact"])
+        rules = retriever.legacy_rules_for("perceivedSeverity", "critical") + retriever.legacy_rules_for("perceivedSeverity", "major")
+        base_confidence = derive_confidence(len(supporting), len(conflicting))
+        confidence, weighting_explanation = apply_note_weighting(base_confidence, retriever.weighted_notes(notes))
+        citations = [ticket["ticket_id"] for ticket in supporting + conflicting] + [note["id"] for note in notes] + [rule["id"] for rule in rules]
+        conflicts = [ticket["ticket_id"] for ticket in conflicting]
+        reasoning = (
+            f"Derived from {len(supporting) + len(conflicting)} historical severity examples: "
+            f"{len(supporting)} support the selected impact/urgency outcomes and "
+            f"{len(conflicting)} conflict or were later corrected."
+        )
+        if conflicts:
+            reasoning += f" Conflicting cases ({', '.join(conflicts)}) reduced confidence."
+        if notes:
+            reasoning += f" {notes[0]['id']} reinforces the critical alarm handling policy."
+            author_fragments = retriever.note_author_fragments(notes)
+            if author_fragments:
+                reasoning += f" Note authority: {'; '.join(author_fragments)}."
+        if weighting_explanation:
+            reasoning += f" {weighting_explanation}"
+        reasoning += " ServiceNow priority is derived downstream from the operator impact x urgency matrix."
+        return MappingProposal(
+            source_field="perceivedSeverity",
+            destination_fields=["impact", "urgency"],
+            transformation_logic="\n".join(lines) + "\npriority is derived by ServiceNow Priority Data Lookup",
+            confidence_score=confidence,
+            reasoning=reasoning,
+            evidence_citations=citations,
+            governance_status="Pending Approval",
+            evidence_summary={"supporting": len(supporting), "conflicting": len(conflicting)},
+        )
+
+    def _probable_cause_assignment(self, cause: str, retriever: EvidenceRetriever) -> MappingProposal:
+        tickets = retriever.tickets_by("probableCause", cause)
+        rules = retriever.legacy_rules_for("probableCause", cause)
+        notes = retriever.notes_for([cause])
+        if not tickets and not rules and not notes:
+            return MappingProposal(
+                source_field="probableCause",
+                source_value=cause,
+                destination_fields=["assignment_group"],
+                transformation_logic=f"{cause} -> no proposed assignment_group",
+                confidence_score=None,
+                reasoning=(
+                    f"No historical tickets, operator notes, or legacy rules mention probableCause={cause}. "
+                    "The mock engine refuses to fabricate a mapping and routes this value to a human."
+                ),
+                evidence_citations=[],
+                governance_status="Insufficient Evidence - Human Required",
+                evidence_summary={"supporting": 0, "conflicting": 0},
+            )
+
+        correct = [ticket for ticket in tickets if ticket["mapping_correct"] and not ticket["later_correction"]]
+        outcomes = Counter(ticket["assignment_group"] for ticket in correct)
+        if outcomes:
+            assignment_group, support_count = outcomes.most_common(1)[0]
+        elif rules:
+            assignment_group = rules[0]["outcome"]["assignment_group"]
+            support_count = 0
+        else:
+            assignment_group = "Human Review"
+            support_count = 0
+
+        supporting = [ticket for ticket in correct if ticket["assignment_group"] == assignment_group]
+        conflicting = [
+            ticket for ticket in tickets
+            if ticket["assignment_group"] != assignment_group or not ticket["mapping_correct"] or ticket["later_correction"]
+        ]
+
+        legacy_outcomes = {
+            rule.get("outcome", {}).get("assignment_group")
+            for rule in rules
+            if "assignment_group" in rule.get("outcome", {})
+        }
+        if len(legacy_outcomes) > 1:
+            synthetic_conflict = {
+                "ticket_id": ", ".join(rule["id"] for rule in rules),
+                "assignment_group": "legacy conflict",
+            }
+            conflicting.append(synthetic_conflict)
+
+        base_confidence = derive_confidence(len(supporting), len(conflicting))
+        confidence, weighting_explanation = apply_note_weighting(base_confidence, retriever.weighted_notes(notes))
+        citations = [ticket["ticket_id"] for ticket in supporting + conflicting if "ticket_id" in ticket]
+        citations += [note["id"] for note in notes] + [rule["id"] for rule in rules]
+        conflict_ids = [ticket["ticket_id"] for ticket in conflicting if "ticket_id" in ticket]
+        reasoning = (
+            f"Derived from {len(tickets)} historical {cause} tickets: {len(supporting)} support "
+            f"assignment_group={assignment_group} and {len(conflicting)} conflict or were corrected."
+        )
+        if support_count:
+            reasoning += f" The leading outcome appeared in {support_count} correct tickets."
+        if conflict_ids:
+            reasoning += f" Conflicting citations: {', '.join(conflict_ids)}."
+        if notes:
+            reasoning += f" Operator context included {', '.join(note['id'] for note in notes)}."
+            author_fragments = retriever.note_author_fragments(notes)
+            if author_fragments:
+                reasoning += f" Note authority: {'; '.join(author_fragments)}."
+        if weighting_explanation:
+            reasoning += f" {weighting_explanation}"
+        if len(legacy_outcomes) > 1:
+            reasoning += " Legacy rules disagree with each other, so policy should require review."
+
+        return MappingProposal(
+            source_field="probableCause",
+            source_value=cause,
+            destination_fields=["assignment_group"],
+            transformation_logic=f"{cause} -> assignment_group={assignment_group}",
+            confidence_score=confidence,
+            reasoning=reasoning,
+            evidence_citations=citations,
+            governance_status="Pending Approval",
+            evidence_summary={"supporting": len(supporting), "conflicting": len(conflicting)},
+        )
+
+
+def run_discovery(data_dir: Path, output_dir: Path, output_stem: str = "proposed_mapping") -> list[dict[str, Any]]:
+    import yaml
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    proposals = MockDiscoveryEngine().discover(data_dir)
+    (output_dir / f"{output_stem}.yaml").write_text(yaml.safe_dump({"mappings": proposals}, sort_keys=False), encoding="utf-8")
+    lines = ["# Proposed Substr8 Mapping", ""]
+    for item in proposals:
+        label = item["source_field"]
+        if item.get("source_value"):
+            label += f"={item['source_value']}"
+        lines.extend([
+            f"## {label}",
+            f"- Destinations: {', '.join(item['destination_fields'])}",
+            f"- Confidence: {item['confidence_score']}",
+            f"- Status: {item['governance_status']}",
+            f"- Citations: {', '.join(item['evidence_citations']) or 'none'}",
+            "",
+            item["reasoning"],
+            "",
+        ])
+    (output_dir / f"{output_stem}.md").write_text("\n".join(lines), encoding="utf-8")
+    return proposals
+
+===== discovery\confidence.py =====
+
+def derive_confidence(supporting: int, conflicting: int) -> float | None:
+    """Transparent confidence score derived only from evidence counts."""
+    total = supporting + conflicting
+    if total == 0:
+        return None
+    agreement = supporting / total
+    volume_factor = min(1.0, total / 10)
+    dampened = agreement * (0.50 + (0.50 * volume_factor))
+    return round(dampened, 2)
+
+
+def apply_note_weighting(base_confidence: float | None, weighted_notes: list[tuple[str, float]]) -> tuple[float | None, str]:
+    """
+    Notes nudge existing evidence confidence toward their average authority by up
+    to 0.05; they never create confidence when evidence produced none.
+    """
+    if base_confidence is None:
+        return None, "Note authority weighting skipped because confidence is None."
+    if not weighted_notes:
+        return base_confidence, ""
+    average_weight = sum(weight for _, weight in weighted_notes) / len(weighted_notes)
+    adjustment = max(-0.05, min(0.05, (average_weight - 0.5) * 0.10))
+    adjusted = round(max(0.0, min(1.0, base_confidence + adjustment)), 2)
+    note_ids = ", ".join(note_id for note_id, _ in weighted_notes)
+    explanation = (
+        f"Authority weighting from {note_ids} averaged {average_weight:.2f}, "
+        f"adjusting confidence from {base_confidence:.2f} to {adjusted:.2f}."
+    )
+    return adjusted, explanation

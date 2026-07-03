@@ -1,0 +1,15 @@
+{
+  "name": "Oracle UIM Inventory Reservation",
+  "version": "synthetic-local",
+  "fields": {
+    "inventoryItemId": {"type": "string", "read_only": true},
+    "resourceType": {"type": "string"},
+    "resourceSpecification": {"type": "string"},
+    "circuitId": {"type": "string"},
+    "serviceInstanceId": {"type": "string"},
+    "siteId": {"type": "string"},
+    "status": {"type": "string", "enum": ["reserved", "active", "decommissioned"]},
+    "parentInventoryItemId": {"type": "string"},
+    "logicalDeviceName": {"type": "string"}
+  }
+}

@@ -1,0 +1,308 @@
+{% extends "base.html" %}
+
+{% block title %}Substr8 Review Queue{% endblock %}
+
+{% block content %}
+<section class="page-intro">
+  <p>Choose the schema pair before generating evidence-backed mapping proposals for review.</p>
+</section>
+
+<section class="selection-panel">
+  <form method="post" action="{{ url_for('run_assurance_discovery') if domain_key == 'assurance' else url_for('run_order_management_discovery') }}" class="schema-selector">
+    <div class="selector-controls">
+      <label>
+        <span>Source schema</span>
+        <select name="source_schema">
+          <option selected>{{ domain.source }}</option>
+        </select>
+      </label>
+
+      <label>
+        <span>Target schema</span>
+        <select name="target_schema" title="Disabled targets are not available in this build">
+          <option selected>{{ domain.target }}</option>
+          {% for disabled_target in domain.target_disabled %}
+          <option disabled>{{ disabled_target }}</option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <label>
+        <span>Discovery Engine</span>
+        <select name="discovery_engine" title="Disabled engines are not available in this build">
+          <option value="{{ mock_engine_label }}" selected>{{ mock_engine_label }}</option>
+          {% if claude_configured %}
+          <option value="{{ claude_engine_label }}">{{ claude_engine_label }}</option>
+          {% else %}
+          <option disabled>Claude - Not configured</option>
+          {% endif %}
+          {% if openai_configured %}
+          <option value="{{ openai_engine_label }}">{{ openai_engine_label }}</option>
+          {% else %}
+          <option disabled>OpenAI GPT-5.5 - Not configured</option>
+          {% endif %}
+        </select>
+      </label>
+    </div>
+
+    {% include "_corpus_summary.html" %}
+
+    <button type="submit">Run Discovery</button>
+  </form>
+</section>
+
+{% if discovery_ran %}
+  <section class="context-strip">
+    <span>Discovery:</span>
+    <strong>{{ discovery_source }} -&gt; {{ discovery_target }}</strong>
+    <span>Engine:</span>
+    <strong>{{ discovery_engine }}</strong>
+  </section>
+
+  <section class="mapping-list">
+    {% for item in queue_items %}
+    {% set mapping = item.mapping %}
+    <article id="mapping-{{ item.index }}" class="mapping-row mapping-card {{ 'insufficient' if mapping.governance_status.startswith('Insufficient') else '' }} {{ 'assigned' if mapping.governance_status == 'Assigned / Awaiting Decision' else '' }}">
+      <div class="mapping-card-main">
+        <div class="mapping-primary">
+          <a class="mapping-title-link" href="{{ url_for(domain.mapping_route, index=item.index) }}">
+            <span class="mapping-flow">
+              <strong class="mapping-flow-side">{{ item.source_summary }}</strong>
+              <span class="mapping-flow-arrow">-&gt;</span>
+              <strong class="mapping-flow-side">{{ item.destination_summary }}</strong>
+            </span>
+          </a>
+          {% if item.has_reason_flag %}
+          <span class="reason-flag" title="A decision reason for this mapping was flagged for governance review.">Reason flagged for governance review</span>
+          {% endif %}
+          {% if mapping.assigned_to %}
+            {% if team_lookup.get(mapping.assigned_to) %}
+            <span class="assigned-stamp">Assigned to {{ team_lookup[mapping.assigned_to].name }}, awaiting their decision.</span>
+            {% elif group_lookup.get(mapping.assigned_to) %}
+            <span class="assigned-stamp">Assigned to {{ group_lookup[mapping.assigned_to].name }}, awaiting their decision.</span>
+            {% else %}
+            <span class="assigned-stamp">Assigned to {{ mapping.assigned_to }}, awaiting their decision.</span>
+            {% endif %}
+          {% endif %}
+        </div>
+        <div class="metrics">
+          <span class="confidence">Mock confidence {{ mapping.confidence_score if mapping.confidence_score is not none else 'None' }}</span>
+          <span class="status-pill status-{{ mapping.governance_status|status_class }}">{{ mapping.governance_status }}</span>
+        </div>
+      </div>
+
+      {% if mapping.split_hint %}
+      <div class="split-hint">
+        <div class="split-hint-heading">
+          <span class="split-hint-icon">!</span>
+          <strong>Evidence split detected - possible conditional rule</strong>
+        </div>
+        <p class="split-hint-outcomes">
+          {% for outcome in mapping.split_hint.top_outcomes %}
+          <span>{{ outcome.value }}: {{ outcome.count }} tickets ({{ outcome.pct }}%)</span>
+          {% endfor %}
+        </p>
+        <details>
+          <summary>Review split guidance</summary>
+          <p>{{ mapping.split_hint.hint }}</p>
+          <p class="muted">This mapping may represent two distinct rules depending on context. Review should consider whether separate conditional mappings are appropriate.</p>
+        </details>
+      </div>
+      {% endif %}
+
+      <div class="claude-comparison">
+        <p class="muted">Mock is deterministic for this evidence set. Claude and GPT-5.5 are real model responses from one run at one moment; repeat runs and different models may differ.</p>
+        <div class="comparison-grid">
+          <div class="comparison-panel">
+            <h4>Substr8 Mock</h4>
+            <span class="confidence">Confidence {{ mapping.confidence_score if mapping.confidence_score is not none else 'None' }}</span>
+            <p>{{ mapping.reasoning }}</p>
+          </div>
+          <div class="comparison-panel">
+            <div class="comparison-heading">
+              <h4>Anthropic</h4>
+              <form method="post" action="{{ url_for(domain.claude_route, index=item.index) }}" class="claude-run-form">
+                <input type="hidden" name="return_to" value="{{ url_for(domain.route, _anchor='mapping-' ~ item.index) }}">
+                <label class="model-run-control">
+                  <span>Model</span>
+                  <select name="claude_model" {% if not claude_configured %}disabled{% endif %}>
+                    {% for option in claude_model_options %}
+                    <option value="{{ option.value }}" {% if option.value == selected_claude_model %}selected{% endif %}>{{ option.label }}</option>
+                    {% endfor %}
+                  </select>
+                </label>
+                <button type="submit" class="secondary-button" {% if not claude_configured %}disabled{% endif %}>
+                  {{ 'Run with Claude' if claude_configured else 'Claude not configured' }}
+                </button>
+              </form>
+            </div>
+            {% if item.claude_runs %}
+              {% for run in item.claude_runs %}
+              <div class="claude-run {{ 'failed' if not run.run_succeeded else '' }}">
+                <div class="summary">
+                  <span>{{ run.timestamp }}</span>
+                  <span>{{ run.model_label|default('Claude Sonnet 4.6') }}</span>
+                  <span>{{ 'Succeeded' if run.run_succeeded else 'Failed' }}</span>
+                </div>
+                {% if run.run_succeeded %}
+                {% set claude_status = run.claude_governance_status or 'Needs Clarification' %}
+                <span class="confidence">Confidence {{ run.claude_confidence_score if run.claude_confidence_score is not none else 'None' }}</span>
+                <span class="status-pill status-{{ claude_status|status_class }}">{{ claude_status }}</span>
+                <p>{{ run.claude_reasoning }}</p>
+                {% if run.claude_citations %}
+                <p class="muted">Citations: {{ run.claude_citations|join(', ') }}</p>
+                {% endif %}
+                {% if run.validation_flags %}
+                <p class="error-inline">Validation: {{ run.validation_flags|join('; ') }}</p>
+                {% endif %}
+                {% else %}
+                <p class="error-inline">Claude engine error: {{ run.error }}</p>
+                {% endif %}
+              </div>
+              {% endfor %}
+            {% else %}
+            <p class="empty">No Claude comparison runs recorded for this mapping.</p>
+            {% endif %}
+            {% if item.historical_claude_runs %}
+            <details class="historical-results">
+              <summary>Show Historical Logs</summary>
+              {% for run in item.historical_claude_runs %}
+              <div class="claude-run historical {{ 'failed' if not run.run_succeeded else '' }}">
+                <div class="summary">
+                  <span>{{ run.timestamp }}</span>
+                  <span>{{ run.model_label|default('Claude Sonnet 4.6') }}</span>
+                  <span>{{ 'Succeeded' if run.run_succeeded else 'Failed' }}</span>
+                </div>
+                {% if run.run_succeeded %}
+                {% set claude_status = run.claude_governance_status or 'Needs Clarification' %}
+                <span class="confidence">Confidence {{ run.claude_confidence_score if run.claude_confidence_score is not none else 'None' }}</span>
+                <span class="status-pill status-{{ claude_status|status_class }}">{{ claude_status }}</span>
+                <p>{{ run.claude_reasoning }}</p>
+                {% if run.claude_citations %}
+                <p class="muted">Citations: {{ run.claude_citations|join(', ') }}</p>
+                {% endif %}
+                {% if run.validation_flags %}
+                <p class="error-inline">Validation: {{ run.validation_flags|join('; ') }}</p>
+                {% endif %}
+                {% else %}
+                <p class="error-inline">Claude engine error: {{ run.error }}</p>
+                {% endif %}
+              </div>
+              {% endfor %}
+            </details>
+            {% endif %}
+          </div>
+          <div class="comparison-panel">
+            <div class="comparison-heading">
+              <h4>OpenAI</h4>
+              <form method="post" action="{{ url_for(domain.openai_route, index=item.index) }}" class="openai-run-form">
+                <input type="hidden" name="return_to" value="{{ url_for(domain.route, _anchor='mapping-' ~ item.index) }}">
+                <label class="model-run-control">
+                  <span>Model</span>
+                  <select name="openai_model" {% if not openai_configured %}disabled{% endif %}>
+                    {% for option in openai_model_options %}
+                    <option value="{{ option.value }}" {% if option.value == selected_openai_model %}selected{% endif %}>{{ option.label }}</option>
+                    {% endfor %}
+                  </select>
+                </label>
+                <button type="submit" class="secondary-button" {% if not openai_configured %}disabled{% endif %}>
+                  {{ 'Run with ChatGPT' if openai_configured else 'ChatGPT not configured' }}
+                </button>
+              </form>
+            </div>
+            {% if item.openai_runs %}
+              {% for run in item.openai_runs %}
+              <div class="claude-run {{ 'failed' if not run.run_succeeded else '' }}">
+                <div class="summary">
+                  <span>{{ run.timestamp }}</span>
+                  <span>{{ run.model_label|default('ChatGPT-5.5') }}</span>
+                  <span>{{ 'Succeeded' if run.run_succeeded else 'Failed' }}</span>
+                </div>
+                {% if run.run_succeeded %}
+                {% set openai_status = run.engine_governance_status or 'Needs Clarification' %}
+                <span class="confidence">Confidence {{ run.engine_confidence_score if run.engine_confidence_score is not none else 'None' }}</span>
+                <span class="status-pill status-{{ openai_status|status_class }}">{{ openai_status }}</span>
+                <p>{{ run.engine_reasoning }}</p>
+                {% if run.engine_citations %}
+                <p class="muted">Citations: {{ run.engine_citations|join(', ') }}</p>
+                {% endif %}
+                {% if run.validation_flags %}
+                <p class="error-inline">Validation: {{ run.validation_flags|join('; ') }}</p>
+                {% endif %}
+                {% else %}
+                <p class="error-inline">OpenAI engine error: {{ run.error }}</p>
+                {% endif %}
+              </div>
+              {% endfor %}
+            {% else %}
+            <p class="empty">No OpenAI comparison runs recorded for this mapping.</p>
+            {% endif %}
+            {% if item.historical_openai_runs %}
+            <details class="historical-results">
+              <summary>Show Historical Logs</summary>
+              {% for run in item.historical_openai_runs %}
+              <div class="claude-run historical {{ 'failed' if not run.run_succeeded else '' }}">
+                <div class="summary">
+                  <span>{{ run.timestamp }}</span>
+                  <span>{{ run.model_label|default('ChatGPT-5.5') }}</span>
+                  <span>{{ 'Succeeded' if run.run_succeeded else 'Failed' }}</span>
+                </div>
+                {% if run.run_succeeded %}
+                {% set openai_status = run.engine_governance_status or 'Needs Clarification' %}
+                <span class="confidence">Confidence {{ run.engine_confidence_score if run.engine_confidence_score is not none else 'None' }}</span>
+                <span class="status-pill status-{{ openai_status|status_class }}">{{ openai_status }}</span>
+                <p>{{ run.engine_reasoning }}</p>
+                {% if run.engine_citations %}
+                <p class="muted">Citations: {{ run.engine_citations|join(', ') }}</p>
+                {% endif %}
+                {% if run.validation_flags %}
+                <p class="error-inline">Validation: {{ run.validation_flags|join('; ') }}</p>
+                {% endif %}
+                {% else %}
+                <p class="error-inline">OpenAI engine error: {{ run.error }}</p>
+                {% endif %}
+              </div>
+              {% endfor %}
+            </details>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </article>
+    {% endfor %}
+  </section>
+{% else %}
+  <section class="panel empty-state discovery-empty">
+    <h3>Ready to discover</h3>
+    <p>{{ domain.empty_text }}</p>
+  </section>
+{% endif %}
+<script>
+  document.querySelectorAll(".claude-run-form").forEach((form) => {
+    form.addEventListener("submit", () => {
+      const button = form.querySelector("button");
+      const row = form.closest(".mapping-row");
+      if (button) {
+        button.disabled = true;
+        button.textContent = "Running Claude...";
+      }
+      if (row) {
+        row.classList.add("is-loading");
+      }
+    });
+  });
+  document.querySelectorAll(".openai-run-form").forEach((form) => {
+    form.addEventListener("submit", () => {
+      const button = form.querySelector("button");
+      const row = form.closest(".mapping-row");
+      if (button) {
+        button.disabled = true;
+        button.textContent = "Running ChatGPT...";
+      }
+      if (row) {
+        row.classList.add("is-loading");
+      }
+    });
+  });
+</script>
+{% endblock %}

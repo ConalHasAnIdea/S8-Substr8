@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="refresh" content="3; url={{ url_for('index') }}">
+  <title>Substr8 Reset</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body class="reset-transition-page">
+  <main class="reset-transition" aria-label="Reset complete">
+    <img src="{{ url_for('static', filename='SubStr8_Reset_Transition.png') }}" alt="Substr8" class="reset-transition-logo">
+  </main>
+  <script>
+    window.setTimeout(() => {
+      window.location.href = "{{ url_for('index') }}";
+    }, 3000);
+  </script>
+</body>
+</html>

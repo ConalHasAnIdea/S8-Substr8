@@ -1,0 +1,36 @@
+{
+  "name": "ServiceNow Incident",
+  "version": "synthetic-local",
+  "fields": {
+    "number": {"type": "string", "read_only": true},
+    "short_description": {"type": "string"},
+    "description": {"type": "string"},
+    "urgency": {"type": "choice", "choices": ["1-High", "2-Medium", "3-Low"]},
+    "impact": {"type": "choice", "choices": ["1-High", "2-Medium", "3-Low"]},
+    "priority": {
+      "type": "choice",
+      "read_only": true,
+      "derived_from": ["impact", "urgency"],
+      "note": "Priority is produced by Priority Data Lookup; mappings must not set it directly."
+    },
+    "category": {"type": "string"},
+    "subcategory": {"type": "string"},
+    "cmdb_ci": {"type": "string"},
+    "assignment_group": {"type": "string"},
+    "correlation_id": {"type": "string"},
+    "state": {"type": "string"},
+    "opened_at": {"type": "datetime"},
+    "work_notes": {"type": "string"}
+  },
+  "priority_lookup": {
+    "1-High|1-High": "1-Critical",
+    "1-High|2-Medium": "2-High",
+    "1-High|3-Low": "3-Moderate",
+    "2-Medium|1-High": "2-High",
+    "2-Medium|2-Medium": "3-Moderate",
+    "2-Medium|3-Low": "4-Low",
+    "3-Low|1-High": "3-Moderate",
+    "3-Low|2-Medium": "4-Low",
+    "3-Low|3-Low": "5-Planning"
+  }
+}

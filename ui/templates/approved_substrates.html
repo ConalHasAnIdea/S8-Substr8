@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block title %}Substr8 Approved Mappings{% endblock %}
+
+{% block content %}
+<section class="page-intro">
+  <p>Individual field mappings that have passed governance, each with its own version stamp. A single approved mapping is not a substrate: bundling approved mappings into a deployable snapshot happens on the Substrate Versions page.</p>
+</section>
+
+{% if substrate.versions %}
+  <section class="mapping-list">
+    {% for version in substrate.versions|reverse %}
+    <article class="panel">
+      <div class="summary">
+        <span>Version {{ version.version }}</span>
+        <span>{{ version.approver }}</span>
+      </div>
+      <p>{{ version.summary }}</p>
+      <p class="muted">{{ version.timestamp }}</p>
+      <pre>{{ version.mappings }}</pre>
+    </article>
+    {% endfor %}
+  </section>
+{% else %}
+  <section class="panel empty-state">
+    <h3>No approved mappings yet</h3>
+    <p>Approvals from the review queue will appear here with version metadata.</p>
+  </section>
+{% endif %}
+{% endblock %}

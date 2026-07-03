@@ -1,0 +1,23 @@
+{
+  "name": "TMF622 Product Order",
+  "version": "synthetic-local",
+  "fields": {
+    "id": {"type": "string", "required": true},
+    "orderItem": {"type": "array"},
+    "productOfferingId": {"type": "string"},
+    "productSpecificationId": {"type": "string"},
+    "characteristic": {
+      "type": "object",
+      "fields": {
+        "address": {"type": "string"},
+        "serviceType": {"type": "string"},
+        "bandwidth": {"type": "string"},
+        "accessTechnology": {"type": "string"}
+      }
+    },
+    "requestedCompletionDate": {"type": "datetime"},
+    "orderType": {"type": "string", "enum": ["new install", "change", "disconnect"]},
+    "relatedParty": {"type": "array"},
+    "state": {"type": "string"}
+  }
+}

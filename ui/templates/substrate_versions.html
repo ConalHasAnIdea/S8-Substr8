@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+
+{% block title %}Substr8 Substrate Versions{% endblock %}
+
+{% block content %}
+<section class="page-intro">
+  <p>A substrate version is a deliberately cut, timestamped bundle of every mapping currently in Approved status for one schema pair. Individual mapping approvals are listed under Approved Mappings; this page bundles them into the artifact a future runtime executor would run against.</p>
+</section>
+
+<section class="context-strip">
+  <span>Domain:</span>
+  {% for key, option in domains.items() %}
+  <a class="nav-item {{ 'active' if key == domain_key else '' }}" href="{{ url_for('substrate_versions_page', domain=key) }}">{{ option.domain_label }}</a>
+  {% endfor %}
+  <span>Currently active:</span>
+  <strong>{{ active_version_id or 'No active version' }}</strong>
+</section>
+
+{% if error %}
+<section class="panel">
+  <p class="muted">{{ error }}</p>
+</section>
+{% endif %}
+
+<section class="panel">
+  <h3>Cut Substrate Version</h3>
+  <p class="muted">Only mappings in Approved status are included. Assigned, pending, rejected, clarification, and insufficient-evidence mappings are excluded.</p>
+  <div class="summary">
+    <span>{{ cut_preview.included|length }} would be included</span>
+    <span>{{ cut_preview.excluded|length }} excluded</span>
+  </div>
+  {% if cut_preview.included %}
+  <details>
+    <summary>Mappings that make the cut</summary>
+    <div class="mapping-list preview-list">
+      {% for item in cut_preview.included %}
+      <div class="preview-row">
+        <strong>{{ item.label }}</strong>
+        <span>{{ item.domain }}</span>
+        <span class="status-pill status-{{ item.status|status_class }}">{{ item.status }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </details>
+  {% endif %}
+  {% if cut_preview.excluded %}
+  <details>
+    <summary>Excluded mappings</summary>
+    <div class="mapping-list preview-list">
+      {% for item in cut_preview.excluded %}
+      <div class="preview-row">
+        <strong>{{ item.label }}</strong>
+        <span>{{ item.domain }}</span>
+        <span class="status-pill status-{{ item.status|status_class }}">{{ item.status }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </details>
+  {% endif %}
+  {% if cut_preview.included %}
+  <form method="post" action="{{ url_for('cut_substrate_version_action') }}">
+    <input type="hidden" name="domain_key" value="{{ domain_key }}">
+    <button type="submit">Cut Substrate Version ({{ cut_preview.included|length }} approved mappings)</button>
+  </form>
+  {% else %}
+  <p class="muted">No mappings are currently in Approved status for this domain; there is nothing to cut.</p>
+  {% endif %}
+</section>
+
+{% if versions %}
+<section class="mapping-list">
+  {% for version in versions|reverse %}
+  <article class="panel">
+    <div class="summary">
+      <span>{{ version.version_id }}</span>
+      {% if version.version_id == active_version_id %}
+      <span class="scope-tag active-tag">Active</span>
+      {% endif %}
+      <span>{{ version.created_by }}</span>
+      <span>{{ version.mapping_ids|length }} mappings</span>
+    </div>
+    <p>{{ version.summary }}</p>
+    <p class="muted">{{ version.created_at }}</p>
+    <details>
+      <summary>Bundled mappings</summary>
+      <div class="mapping-list preview-list">
+        {% for mapping in version.mappings %}
+        <div class="preview-row">
+          <strong>{{ mapping.source_summary }}</strong>
+          <span>{{ mapping.destination_summary }}</span>
+          <span class="muted">confidence at cut: {{ mapping.confidence_at_cut if mapping.confidence_at_cut is not none else 'n/a' }}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </details>
+    {% if version.version_id != active_version_id %}
+    <form method="post" action="{{ url_for('rollback_substrate_version_action') }}">
+      <input type="hidden" name="domain_key" value="{{ domain_key }}">
+      <input type="hidden" name="version_id" value="{{ version.version_id }}">
+      <button type="submit">Roll back to {{ version.version_id }}</button>
+    </form>
+    {% endif %}
+  </article>
+  {% endfor %}
+</section>
+<p class="muted">Rollback records the decision in the audit log for governance tracking; no live running system is affected in this build, since none exists yet in Phase 1.</p>
+{% else %}
+<section class="panel empty-state">
+  <h3>No substrate versions yet</h3>
+  <p>Approve mappings in the review queue, then cut a version here to bundle them into a deployable substrate snapshot.</p>
+</section>
+{% endif %}
+{% endblock %}
