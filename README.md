@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/substr8-logo.png" alt="Substr8 logo" width="240">
+</p>
+
 # S8 0.1 - Substr8 Phase 1
 
 > *Machina proponit, homo disponit.*
