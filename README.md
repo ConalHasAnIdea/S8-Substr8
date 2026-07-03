@@ -1,25 +1,58 @@
-# Substr8 Phase 1
+<p align="center">
+  <img src="assets/substr8-logo.png" alt="Substr8 logo" width="240">
+</p>
+
+# S8 0.1 - Substr8 Phase 1
 
 > *Machina proponit, homo disponit.*
-> — the machine proposes, the human disposes.
+> The machine proposes, the human disposes.
 
-Substr8 is a pilot for Evidence-Governed Substrate Engineering (EGSE) in OSS/BSS integration work. It focuses on the integration substrate below the application layer: mappings, exceptions, suppression rules, enrichment logic, tribal knowledge, and operator-specific workflow decisions.
+Substr8 is a Phase 1 prototype for Evidence-Governed Substrate Engineering in OSS/BSS integration work.
 
-Substr8 does not execute AI decisions. It manufactures governed integration substrates from operational evidence.
+It focuses on the integration substrate below the application layer: mappings, exceptions, suppression rules, enrichment logic, operator notes, legacy rules, and operator-specific workflow decisions.
 
-Good agentic design is a prerequisite for AI governance, but it is not sufficient.
+The prototype uses local operational evidence to produce governed mapping proposals. It does not execute AI decisions, contact ServiceNow, contact Oracle, or change a live runtime.
 
-## What This Phase Proves
+## What Phase 1 Shows
 
-Phase 1 proves the governance lifecycle and the evidence/confidence data contract, across two live domains: TMF642 Alarm Management to ServiceNow Incident (Assurance) and TMF622 Product Order to Oracle UIM (Order Management & Fulfillment). Mappings are discovered from synthetic evidence, reviewed, assigned, approved, versioned, audited, and blocked when evidence is insufficient — through one shared engine and governance pipeline, not per-domain forks.
+Phase 1 exercises one governance pipeline across two configured domains:
 
-The deterministic `MockDiscoveryEngine` is the default and primary engine, and the governance thesis stands on it alone. Real model-backed engines (Claude and OpenAI GPT-5.5) are additionally wired in as opt-in, per-mapping comparison engines: they consume identical evidence, emit the identical proposal shape, and their results are recorded alongside the mock's for drift comparison — but they never affect governance status, approvals, or substrate versions. They activate only when an API key is provided (environment variable, or the in-memory Settings page); without keys, no external API is ever called. No ServiceNow or Oracle system is contacted in any configuration.
+- **Assurance:** TMF642 Alarm Management to ServiceNow Incident
+- **Order Management and Fulfillment:** TMF622 Product Order to Oracle UIM Inventory
 
-Building the governance scaffold before trusting intelligence was intentional. The mock engine sits exactly where the model-backed engines now also sit, emitting the same proposal shape from the same evidence contract — which is what made wiring in two real engines a narrow change: proposal generation swapped, while review, policy, versioning, and audit stayed identical.
+Across both domains, mappings are discovered from synthetic evidence, reviewed, assigned, approved, versioned, audited, and blocked when evidence is too thin.
+
+The default engine is `MockDiscoveryEngine`, a deterministic engine that reads the local evidence corpus and emits mapping proposals. Its output is the baseline for Phase 1.
+
+Claude and OpenAI engines are also wired in as optional comparison engines. They consume the same evidence and emit the same proposal shape, but their runs are recorded beside the mock output for drift comparison only. They do not affect governance status, approvals, or substrate versions.
+
+Model-backed comparison runs activate only when an API key is provided through an environment variable or the in-memory Settings page. Without keys, no external model API is called.
+
+## Run Locally
+
+```powershell
+git clone https://github.com/ConalHasAnIdea/S8-Substr8.git
+cd S8-Substr8
+python -m venv .venv
+.venv\Scripts\python.exe -m pip install -r requirements.txt
+.venv\Scripts\python.exe generate_outputs.py
+.venv\Scripts\python.exe -m pytest
+.venv\Scripts\python.exe ui\app.py
+```
+
+Open the Flask app at:
+
+```text
+http://127.0.0.1:5000
+```
+
+Calling the venv's `python.exe` directly avoids PowerShell execution-policy issues with `Activate.ps1`.
+
+Flask debug mode is off by default. For local development, set `FLASK_DEBUG=1` before starting the app.
 
 ## Governance Lifecycle
 
-Substr8 treats governance as a lifecycle:
+Substr8 models governance as a lifecycle:
 
 1. Discover
 2. Review
@@ -29,13 +62,13 @@ Substr8 treats governance as a lifecycle:
 6. Audit
 7. Roll back
 
-Mappings are approved and version-stamped individually. A substrate version is a different artifact: a deliberately cut, timestamped bundle of every mapping in Approved status for one schema pair at the moment of the cut — the thing a runtime executor would actually run against. A single approved mapping is not a substrate. Rollback operates on substrate versions, not individual mappings; in Phase 1 it records the decision in the audit log only, since no live runtime exists yet.
+Phase 1 implements discovery, review, approval, versioning, audit, and rollback recording. Runtime deployment is outside the current prototype.
 
-Runtime execution is outside Phase 1. Later phases can add correlation, deduplication, alarm-storm handling, and enforcement of approved substrates.
+Mappings are approved individually. A substrate version is a timestamped bundle of every mapping in `Approved` status for one schema pair at the moment the version is cut. Rollback operates on substrate versions. In Phase 1, rollback records an audit event because there is no live runtime to change.
 
 ## Mock Discovery
 
-`MockDiscoveryEngine` implements the abstract `DiscoveryEngine` interface. It reads local schemas, historical tickets, operator notes, legacy rules, and alarm fixtures. It then emits mapping proposals with:
+`MockDiscoveryEngine` implements the abstract `DiscoveryEngine` interface. It reads local schemas, historical tickets or order records, operator notes, legacy rules, and fixtures. It emits mapping proposals with:
 
 - `source_field`
 - `destination_fields`
@@ -45,60 +78,52 @@ Runtime execution is outside Phase 1. Later phases can add correlation, deduplic
 - `evidence_citations`
 - `governance_status`
 
-Confidence scores are derived from the synthetic corpus, not constants. The scoring formula is intentionally transparent: agreement ratio dampened by sample volume. Evidence citations are actual ticket IDs, operator note IDs, and legacy rule IDs.
+Confidence scores are derived from the synthetic corpus. The scoring formula uses evidence agreement dampened by sample volume. Evidence citations point to ticket IDs, record IDs, operator note IDs, and legacy rule IDs.
 
-Operator notes can also carry an explicit author from `data/team_roster.yaml`. Authority weights are illustrative inputs set manually by project leadership for Phase 1; they are not computed or inferred. A cited note can only nudge an existing evidence-derived confidence score by a small bounded amount, and the reasoning text names the author, role, and weight whenever that adjustment is applied.
+Operator notes can carry an explicit author from `data/team_roster.yaml`. Authority weights are illustrative inputs set manually for Phase 1. They are not computed or inferred. A cited note can nudge an evidence-derived confidence score by a small bounded amount, and the reasoning text names the author, role, and weight when that adjustment is applied.
 
-The planted insufficient-evidence case is `probableCause=solar_flare_noise`. It appears in `data/alarm_fixtures.jsonl` but has no historical tickets, operator notes, or legacy rules. The engine emits `Insufficient Evidence - Human Required` with no confidence score and no citations.
+The planted insufficient-evidence case is `probableCause=solar_flare_noise`. It appears in `data/alarm_fixtures.jsonl`, but has no historical tickets, operator notes, or legacy rules. The engine emits `Insufficient Evidence - Human Required` with no confidence score and no citations.
 
 ServiceNow `priority` is never mapped directly. The prototype maps to `impact` and `urgency`; `priority` is derived by the ServiceNow Priority Data Lookup matrix represented in `data/servicenow_incident_schema.json`.
 
-When historical evidence splits roughly evenly between two destination values, the engine attaches an advisory split hint (possible conditional rule) rather than hiding the ambiguity behind a low score. The hint never changes governance status; the human decides whether two conditional mappings beat one uncertain one.
+When historical evidence splits roughly evenly between two destination values, the engine attaches an advisory split hint for a possible conditional rule. The hint does not change governance status. The reviewer decides whether the substrate should contain one uncertain mapping or multiple conditional mappings.
 
 ## Governance Features
 
-- **Review queue** per domain: approve, reject, or request clarification, each requiring a decision reason. Reasons are gated deterministically (length, no copy-paste duplicates); an advisory Claude relevance check can additionally flag a recorded decision's reason for human follow-up, but can never block or reverse the decision.
-- **Assignment as a soft lock**: a mapping can be assigned to a roster member or group, which disables decision controls until unassigned. Assignment, unassignment, and decision are three separate audit events.
-- **Substrate versions**: deliberately cut, per-domain bundles of currently-Approved mappings, with an include/exclude preview before cutting, an active-version pointer, and audit-logged rollback.
-- **Reviewer activity report**: per-member action counts and a revision rate (how often a member's approvals were later reversed), plus a live count of unassigned pre-decision mappings.
-- **Demo reset**: confirmation-gated control that returns review state to pre-discovery without ever deleting audit history — the reset itself is an audit event.
+- **Review queue per domain:** reviewers can approve, reject, or request clarification. Each decision requires a reason.
+- **Decision reason checks:** reasons are gated deterministically for length and duplicate copy-paste text. An optional Claude relevance check can flag a recorded reason for follow-up, but it cannot block or reverse the decision.
+- **Assignment as a soft lock:** a mapping can be assigned to a roster member or group. Decision controls stay disabled until the mapping is unassigned. Assignment, unassignment, and decision are separate audit events.
+- **Substrate versions:** reviewers can preview the included mappings, cut a per-domain bundle of currently approved mappings, track the active version, and record rollback decisions.
+- **Reviewer activity report:** the app shows per-member action counts, revision rate, and the live count of unassigned pre-decision mappings.
+- **Demo reset:** a confirmation-gated control returns review state to a pre-discovery baseline while preserving audit history. The reset itself is an audit event.
 
 ## API Keys and the Settings Page
 
-Model-backed comparison engines need keys. Two ways to provide them:
+Model-backed comparison engines need keys. Substr8 supports two ways to provide them:
 
-- Environment variables `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`, or
-- The **Settings** page in the UI: keys are validated with a cheap live call, then held in process memory only — never written to disk, logs, or cookies, and gone on restart. A key entered in Settings overrides the environment for the session.
+- environment variables: `ANTHROPIC_API_KEY` and `OPENAI_API_KEY`
+- the Settings page in the UI
 
-This is a demo convenience. Production deployments should source keys from a proper secrets manager (HashiCorp Vault, AWS Secrets Manager, Azure Key Vault, GCP Secret Manager).
+Keys entered in Settings are validated with a cheap live call and held in process memory only. They are not written to disk, logs, or cookies. They disappear on restart. A key entered in Settings overrides the matching environment variable for the session.
 
-## Run Locally
-
-```powershell
-cd substr8
-python -m venv .venv
-.venv\Scripts\python.exe -m pip install -r requirements.txt
-.venv\Scripts\python.exe generate_outputs.py
-.venv\Scripts\python.exe -m pytest
-.venv\Scripts\python.exe ui\app.py
-```
-
-Open the Flask app at `http://127.0.0.1:5000`.
-
-Calling the venv's `python.exe` directly avoids PowerShell execution-policy issues with `Activate.ps1`. Flask debug mode (interactive debugger + auto-reload) is off by default; opt in with `FLASK_DEBUG=1` for development only.
+Production deployments should source model keys from a proper secrets manager, such as HashiCorp Vault, AWS Secrets Manager, Azure Key Vault, or GCP Secret Manager.
 
 ## Project Structure
 
 ```text
-substr8/
-  data/          synthetic schemas, tickets, notes, fixtures, and legacy rules
-  discovery/     shared discovery interface, mock engine, retrieval, prompt builder, confidence
-  governance/    approval, policy, audit log, and versioning
+S8-Substr8/
+  data/          synthetic schemas, tickets, notes, fixtures, legacy rules, and team data
+  discovery/     discovery interface, mock engine, retrieval, prompt builder, confidence, model probes
+  governance/    approval, assignment, policy, audit log, reporting, and versioning
   output/        proposed mappings, approved mappings, substrate versions, audit log
+  tests/         retrieval, schema, governance, settings, model runs, and confidence tests
   ui/            Flask review interface
-  tests/         retrieval, schema, governance, and confidence derivation tests
 ```
 
 ## Roadmap
 
-The Phase 2 engine swap has been probed: `ClaudeDiscoveryEngine` and `OpenAIDiscoveryEngine` run against real evidence behind the same interface, with citation-fabrication validation and drift comparison against the mock. Remaining Phase 2 work is promoting a model-backed engine from comparison-only to proposal-generating, including letting it reason about whether an evidence split is conditional or genuinely ambiguous. Later phases can add a runtime executor that enforces approved substrates and handles correlation, deduplication, and alarm storms.
+The Phase 2 engine swap has been probed. `ClaudeDiscoveryEngine` and `OpenAIDiscoveryEngine` can run against the same evidence interface, with citation-fabrication validation and drift comparison against the mock engine.
+
+The next step is deciding whether a model-backed engine should move from comparison-only to proposal generation. That would still need the same evidence contract, citation checks, review flow, and versioning rules.
+
+Later phases can add a runtime executor that enforces approved substrate versions and handles production concerns such as correlation, deduplication, suppression, alarm storms, and rollback.
