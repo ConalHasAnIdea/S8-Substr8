@@ -127,3 +127,9 @@ The Phase 2 engine swap has been probed. `ClaudeDiscoveryEngine` and `OpenAIDisc
 The next step is deciding whether a model-backed engine should move from comparison-only to proposal generation. That would still need the same evidence contract, citation checks, review flow, and versioning rules.
 
 Later phases can add a runtime executor that enforces approved substrate versions and handles production concerns such as correlation, deduplication, suppression, alarm storms, and rollback.
+
+## Contributors
+
+- **Conal Higgins** — project direction, prompt authorship, and review.
+- **Codex (OpenAI)** — implemented the initial build across most of the phased prompts (domains, governance workflow, team/assignment features, engine integrations).
+- **Claude (Anthropic)** — completed the remaining prompt work, verified the full prompt sequence against the codebase, added the API key settings page, built the prompt-injection test suite, and handled repository setup and hardening.
