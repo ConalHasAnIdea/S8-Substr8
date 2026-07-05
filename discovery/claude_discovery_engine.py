@@ -12,6 +12,7 @@ That check is the single most important thing this file does.
 """
 
 import json
+from time import perf_counter
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,7 @@ from .discovery_engine import DiscoveryEngine
 from .prompt_builder import build_prompt
 from .retrieval import EvidenceRetriever
 from governance.reason_review import strip_json_fences
+from governance.run_log import telemetry_from_response
 
 try:
     import anthropic
@@ -85,11 +87,16 @@ class ClaudeDiscoveryEngine(DiscoveryEngine):
             | {r["id"] for r in rules}
         )
 
+        started = perf_counter()
         response = self.client.messages.create(
             model=self.model,
             max_tokens=4096,
             system=prompt["system"],
             messages=[{"role": "user", "content": prompt["user"]}],
+        )
+        telemetry = telemetry_from_response(
+            response,
+            latency_ms=round((perf_counter() - started) * 1000),
         )
 
         raw_text = "".join(
@@ -163,4 +170,5 @@ class ClaudeDiscoveryEngine(DiscoveryEngine):
 
         parsed["validation_flags"] = flags
         parsed["raw_response"] = raw_text
+        parsed.update(telemetry)
         return parsed

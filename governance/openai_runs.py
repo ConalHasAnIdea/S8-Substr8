@@ -1,10 +1,8 @@
-import json
 import os
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Protocol
 
-from .claude_runs import last_demo_reset_timestamp, mapping_run_key
+from .run_log import append_run_log, build_run_record, last_demo_reset_timestamp, load_run_log, mapping_run_key
 
 
 RUN_LOG = "openai_engine_runs.jsonl"
@@ -64,6 +62,10 @@ def normalize_openai_run(entry: dict[str, Any]) -> dict[str, Any]:
         normalized.setdefault("engine", ENGINE_ID)
     normalized["model"] = allowed_openai_model(normalized.get("model"))
     normalized["model_label"] = openai_model_label(normalized["model"])
+    normalized.setdefault("engine_confidence_score", normalized.get("confidence_score"))
+    normalized.setdefault("engine_governance_status", normalized.get("governance_status"))
+    normalized.setdefault("engine_citations", normalized.get("citations", []))
+    normalized.setdefault("engine_reasoning", normalized.get("reasoning", ""))
     return normalized
 
 
@@ -72,17 +74,13 @@ def load_openai_runs(output_dir: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
     return [
-        normalize_openai_run(json.loads(line))
-        for line in path.read_text(encoding="utf-8").splitlines()
-        if line.strip()
+        normalize_openai_run(run)
+        for run in load_run_log(output_dir, RUN_LOG)
     ]
 
 
 def append_openai_run(output_dir: Path, entry: dict[str, Any]) -> dict[str, Any]:
-    output_dir.mkdir(parents=True, exist_ok=True)
-    with (output_dir / RUN_LOG).open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(entry) + "\n")
-    return entry
+    return normalize_openai_run(append_run_log(output_dir, RUN_LOG, entry))
 
 
 def runs_for_mapping(output_dir: Path, domain: str, mapping: dict[str, Any]) -> list[dict[str, Any]]:
@@ -114,26 +112,9 @@ def run_openai_comparison(
     model: str | None = None,
 ) -> dict[str, Any]:
     model = allowed_openai_model(model)
-    entry = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "engine": ENGINE_ID,
-        "model": model,
-        "model_label": openai_model_label(model),
-        "domain": domain,
-        "mapping_key": mapping_run_key(domain, mapping),
-        "source_field": mapping.get("source_field"),
-        "source_value": mapping.get("source_value"),
-        "destination_fields": mapping.get("destination_fields", []),
-        "mock_confidence_score": mapping.get("confidence_score"),
-        "mock_governance_status": mapping.get("governance_status"),
-        "engine_confidence_score": None,
-        "engine_governance_status": None,
-        "engine_citations": [],
-        "engine_reasoning": "",
-        "validation_flags": [],
-        "run_succeeded": False,
-        "error": None,
-    }
+    proposal: dict[str, Any] | None = None
+    run_succeeded = False
+    error = None
 
     try:
         if engine is None:
@@ -146,24 +127,35 @@ def run_openai_comparison(
             mapping.get("source_value"),
             mapping.get("destination_fields", []),
         )
+        proposal = dict(result)
+        proposal["reasoning"] = redact_api_key(proposal.get("reasoning", ""))
         flags = result.get("validation_flags", [])
-        entry.update({
-            "engine_confidence_score": result.get("confidence_score"),
-            "engine_governance_status": result.get("governance_status"),
-            "engine_citations": result.get("evidence_citations", []),
-            "engine_reasoning": redact_api_key(result.get("reasoning", "")),
-            "validation_flags": flags,
-            "run_succeeded": True,
-        })
+        run_succeeded = True
         if flags:
             fatal_flags = {"openai_call_failed", "malformed_json_response"}
             if any(flag in fatal_flags or "malformed" in flag for flag in flags):
-                entry["run_succeeded"] = False
+                run_succeeded = False
                 if "openai_call_failed" in flags:
-                    entry["error"] = entry["engine_reasoning"] or "OpenAI call failed."
+                    error = proposal.get("reasoning") or "OpenAI call failed."
                 else:
-                    entry["error"] = sanitize_error("; ".join(flags))
+                    error = sanitize_error("; ".join(flags))
     except Exception as exc:
-        entry["error"] = sanitize_error(exc)
+        error = sanitize_error(exc)
 
+    entry = build_run_record(
+        engine=ENGINE_ID,
+        model=model,
+        model_label=openai_model_label(model),
+        domain=domain,
+        mapping=mapping,
+        proposal=proposal,
+        run_succeeded=run_succeeded,
+        error=error,
+        legacy_fields={
+            "engine_confidence_score": proposal.get("confidence_score") if proposal else None,
+            "engine_governance_status": proposal.get("governance_status") if proposal else None,
+            "engine_citations": proposal.get("evidence_citations", []) if proposal else [],
+            "engine_reasoning": proposal.get("reasoning", "") if proposal else "",
+        },
+    )
     return append_openai_run(output_dir, entry)

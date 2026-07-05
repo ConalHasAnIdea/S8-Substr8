@@ -41,6 +41,11 @@
           {% else %}
           <option disabled>OpenAI GPT-5.5 - Not configured</option>
           {% endif %}
+          {% if local_configured %}
+          <option value="{{ local_engine_label }}">{{ local_engine_label }}</option>
+          {% else %}
+          <option disabled>Local (self hosted) - Not configured</option>
+          {% endif %}
         </select>
       </label>
     </div>
@@ -111,7 +116,7 @@
       {% endif %}
 
       <div class="claude-comparison">
-        <p class="muted">Mock is deterministic for this evidence set. Claude and GPT-5.5 are real model responses from one run at one moment; repeat runs and different models may differ.</p>
+        <p class="muted">Mock is deterministic for this evidence set. Claude, GPT-5.5, and Local (self hosted) are model responses from one run at one moment; repeat runs and different models may differ.</p>
         <div class="comparison-grid">
           <div class="comparison-panel">
             <h4>Substr8 Mock</h4>
@@ -266,6 +271,72 @@
             </details>
             {% endif %}
           </div>
+          <div class="comparison-panel">
+            <div class="comparison-heading">
+              <h4>Local (self hosted)</h4>
+              <form method="post" action="{{ url_for(domain.local_route, index=item.index) }}" class="local-run-form">
+                <input type="hidden" name="return_to" value="{{ url_for(domain.route, _anchor='mapping-' ~ item.index) }}">
+                <button type="submit" class="secondary-button" {% if not local_configured %}disabled{% endif %}>
+                  {{ 'Run local model' if local_configured else 'Local not configured' }}
+                </button>
+              </form>
+            </div>
+            {% if item.local_runs %}
+              {% for run in item.local_runs %}
+              <div class="claude-run {{ 'failed' if not run.run_succeeded else '' }}">
+                <div class="summary">
+                  <span>{{ run.timestamp }}</span>
+                  <span>{{ run.model_label|default('llama3.1') }}</span>
+                  <span>{{ 'Succeeded' if run.run_succeeded else 'Failed' }}</span>
+                </div>
+                {% if run.run_succeeded %}
+                {% set local_status = run.engine_governance_status or 'Needs Clarification' %}
+                <span class="confidence">Confidence {{ run.engine_confidence_score if run.engine_confidence_score is not none else 'None' }}</span>
+                <span class="status-pill status-{{ local_status|status_class }}">{{ local_status }}</span>
+                <p>{{ run.engine_reasoning }}</p>
+                {% if run.engine_citations %}
+                <p class="muted">Citations: {{ run.engine_citations|join(', ') }}</p>
+                {% endif %}
+                {% if run.validation_flags %}
+                <p class="error-inline">Validation: {{ run.validation_flags|join('; ') }}</p>
+                {% endif %}
+                {% else %}
+                <p class="error-inline">Local engine error: {{ run.error }}</p>
+                {% endif %}
+              </div>
+              {% endfor %}
+            {% else %}
+            <p class="empty">No local comparison runs recorded for this mapping.</p>
+            {% endif %}
+            {% if item.historical_local_runs %}
+            <details class="historical-results">
+              <summary>Show Historical Logs</summary>
+              {% for run in item.historical_local_runs %}
+              <div class="claude-run historical {{ 'failed' if not run.run_succeeded else '' }}">
+                <div class="summary">
+                  <span>{{ run.timestamp }}</span>
+                  <span>{{ run.model_label|default('llama3.1') }}</span>
+                  <span>{{ 'Succeeded' if run.run_succeeded else 'Failed' }}</span>
+                </div>
+                {% if run.run_succeeded %}
+                {% set local_status = run.engine_governance_status or 'Needs Clarification' %}
+                <span class="confidence">Confidence {{ run.engine_confidence_score if run.engine_confidence_score is not none else 'None' }}</span>
+                <span class="status-pill status-{{ local_status|status_class }}">{{ local_status }}</span>
+                <p>{{ run.engine_reasoning }}</p>
+                {% if run.engine_citations %}
+                <p class="muted">Citations: {{ run.engine_citations|join(', ') }}</p>
+                {% endif %}
+                {% if run.validation_flags %}
+                <p class="error-inline">Validation: {{ run.validation_flags|join('; ') }}</p>
+                {% endif %}
+                {% else %}
+                <p class="error-inline">Local engine error: {{ run.error }}</p>
+                {% endif %}
+              </div>
+              {% endfor %}
+            </details>
+            {% endif %}
+          </div>
         </div>
       </div>
     </article>
@@ -298,6 +369,19 @@
       if (button) {
         button.disabled = true;
         button.textContent = "Running ChatGPT...";
+      }
+      if (row) {
+        row.classList.add("is-loading");
+      }
+    });
+  });
+  document.querySelectorAll(".local-run-form").forEach((form) => {
+    form.addEventListener("submit", () => {
+      const button = form.querySelector("button");
+      const row = form.closest(".mapping-row");
+      if (button) {
+        button.disabled = true;
+        button.textContent = "Running local model...";
       }
       if (row) {
         row.classList.add("is-loading");

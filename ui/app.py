@@ -12,12 +12,14 @@ if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
 from discovery.api_keys import ANTHROPIC, OPENAI, clear_api_key, get_api_key, key_source, set_api_key
+from discovery.api_keys import clear_local_config, get_local_base_url, get_local_model, local_config_source, set_local_config, validate_local_config
 from discovery.mock_discovery_engine import run_discovery
 from discovery.retrieval import EvidenceRetriever
 from governance.approval_model import assign_mapping, is_decision_locked, load_proposals, mapping_label, record_decision, unassign_mapping
 from governance.claude_runs import CLAUDE_MODEL_OPTIONS, DEFAULT_CLAUDE_MODEL, allowed_claude_model, run_claude_comparison, split_runs_for_mapping
 from governance.demo_reset import reset_demo_state
 from governance.mapping_display import destination_summary, source_summary
+from governance.local_runs import LOCAL_ENGINE_LABEL, local_llm_configured, local_llm_status, run_local_comparison, split_local_runs_for_mapping
 from governance.openai_runs import DEFAULT_OPENAI_MODEL, OPENAI_MODEL_OPTIONS, allowed_openai_model, run_openai_comparison, split_openai_runs_for_mapping
 from governance.reason_review import MIN_DECISION_REASON_LENGTH
 from governance.reporting import decorate_events_with_reason_flags, flagged_reason_events, load_audit_events, mapping_audit_context, reviewer_activity_report, split_audit_events_at_latest_reset
@@ -39,6 +41,7 @@ def openai_configured() -> bool:
 MOCK_ENGINE_LABEL = "Mock Discovery Engine (deterministic, evidence-derived)"
 CLAUDE_ENGINE_LABEL = "Claude (per-mapping comparison)"
 OPENAI_ENGINE_LABEL = "OpenAI GPT-5.5 (per-mapping comparison)"
+LOCAL_DISCOVERY_ENGINE_LABEL = f"{LOCAL_ENGINE_LABEL} (per-mapping comparison)"
 DOMAINS = {
     "assurance": {
         "domain_label": "Assurance",
@@ -52,6 +55,7 @@ DOMAINS = {
         "unassign_route": "unassign_decision",
         "claude_route": "run_assurance_claude",
         "openai_route": "run_assurance_openai",
+        "local_route": "run_assurance_local",
         "source": "TMF642 Alarm Management",
         "target": "ServiceNow Incident",
         "target_disabled": [
@@ -72,6 +76,7 @@ DOMAINS = {
         "unassign_route": "order_unassign_decision",
         "claude_route": "run_order_claude",
         "openai_route": "run_order_openai",
+        "local_route": "run_order_local",
         "source": "TMF622 Product Order",
         "target": "Oracle UIM (Inventory)",
         "target_disabled": ["Oracle ASAP (Provisioning) - Not yet wired"],
@@ -187,6 +192,7 @@ def queue_items(mappings: list[dict], domain: dict) -> list[dict]:
     for index, mapping in reversed(list(enumerate(mappings))):
         claude_runs = split_runs_for_mapping(OUTPUT_DIR, domain["domain_label"], mapping)
         openai_runs = split_openai_runs_for_mapping(OUTPUT_DIR, domain["domain_label"], mapping)
+        local_runs = split_local_runs_for_mapping(OUTPUT_DIR, domain["domain_label"], mapping)
         history_groups = mapping_history_context(mapping, domain["domain_label"])
         items.append({
             "index": index,
@@ -201,6 +207,8 @@ def queue_items(mappings: list[dict], domain: dict) -> list[dict]:
             "historical_claude_runs": claude_runs["historical"],
             "openai_runs": openai_runs["current"],
             "historical_openai_runs": openai_runs["historical"],
+            "local_runs": local_runs["current"],
+            "historical_local_runs": local_runs["historical"],
         })
     return items
 
@@ -210,6 +218,7 @@ def discovery_engine_allowed(engine: str) -> bool:
         engine.startswith("Mock Discovery Engine")
         or (engine == CLAUDE_ENGINE_LABEL and claude_configured())
         or (engine == OPENAI_ENGINE_LABEL and openai_configured())
+        or (engine == LOCAL_DISCOVERY_ENGINE_LABEL and local_llm_configured())
     )
 
 
@@ -220,6 +229,8 @@ def discovery_engine_session_label(engine: str) -> str:
         return "Mock baseline with Claude per-mapping comparison"
     if engine == OPENAI_ENGINE_LABEL:
         return "Mock baseline with OpenAI GPT-5.5 per-mapping comparison"
+    if engine == LOCAL_DISCOVERY_ENGINE_LABEL:
+        return "Mock baseline with Local (self hosted) per-mapping comparison"
     return MOCK_ENGINE_LABEL
 
 
@@ -241,9 +252,11 @@ def render_review_page(domain_key: str):
         openai_model_options=OPENAI_MODEL_OPTIONS,
         default_openai_model=DEFAULT_OPENAI_MODEL,
         selected_openai_model=selected_openai_model(domain_key),
+        local_configured=local_llm_configured(),
         mock_engine_label=MOCK_ENGINE_LABEL,
         claude_engine_label=CLAUDE_ENGINE_LABEL,
         openai_engine_label=OPENAI_ENGINE_LABEL,
+        local_engine_label=LOCAL_DISCOVERY_ENGINE_LABEL,
         discovery_ran=discovery_ran,
         discovery_source=session.get(f"{domain_key}_discovery_source", domain["source"]),
         discovery_target=session.get(f"{domain_key}_discovery_target", domain["target"]),
@@ -314,6 +327,7 @@ def mapping_detail(index: int):
     ]
     claude_run_groups = split_runs_for_mapping(OUTPUT_DIR, DOMAINS["assurance"]["domain_label"], mapping)
     openai_run_groups = split_openai_runs_for_mapping(OUTPUT_DIR, DOMAINS["assurance"]["domain_label"], mapping)
+    local_run_groups = split_local_runs_for_mapping(OUTPUT_DIR, DOMAINS["assurance"]["domain_label"], mapping)
     history_groups = mapping_history_context(mapping, DOMAINS["assurance"]["domain_label"])
     return render_template(
         "mapping_detail.html",
@@ -333,10 +347,13 @@ def mapping_detail(index: int):
         openai_model_options=OPENAI_MODEL_OPTIONS,
         default_openai_model=DEFAULT_OPENAI_MODEL,
         selected_openai_model=selected_openai_model("assurance"),
+        local_configured=local_llm_configured(),
         claude_runs=claude_run_groups["current"],
         historical_claude_runs=claude_run_groups["historical"],
         openai_runs=openai_run_groups["current"],
         historical_openai_runs=openai_run_groups["historical"],
+        local_runs=local_run_groups["current"],
+        historical_local_runs=local_run_groups["historical"],
         min_decision_reason_length=MIN_DECISION_REASON_LENGTH,
         discovery_source=session.get("assurance_discovery_source", WIRED_SOURCE),
         discovery_target=session.get("assurance_discovery_target", WIRED_TARGET),
@@ -364,6 +381,7 @@ def order_mapping_detail(index: int):
     ]
     claude_run_groups = split_runs_for_mapping(OUTPUT_DIR, domain["domain_label"], mapping)
     openai_run_groups = split_openai_runs_for_mapping(OUTPUT_DIR, domain["domain_label"], mapping)
+    local_run_groups = split_local_runs_for_mapping(OUTPUT_DIR, domain["domain_label"], mapping)
     history_groups = mapping_history_context(mapping, domain["domain_label"])
     return render_template(
         "mapping_detail.html",
@@ -383,10 +401,13 @@ def order_mapping_detail(index: int):
         openai_model_options=OPENAI_MODEL_OPTIONS,
         default_openai_model=DEFAULT_OPENAI_MODEL,
         selected_openai_model=selected_openai_model(domain_key),
+        local_configured=local_llm_configured(),
         claude_runs=claude_run_groups["current"],
         historical_claude_runs=claude_run_groups["historical"],
         openai_runs=openai_run_groups["current"],
         historical_openai_runs=openai_run_groups["historical"],
+        local_runs=local_run_groups["current"],
+        historical_local_runs=local_run_groups["historical"],
         min_decision_reason_length=MIN_DECISION_REASON_LENGTH,
         discovery_source=session.get(f"{domain_key}_discovery_source", domain["source"]),
         discovery_target=session.get(f"{domain_key}_discovery_target", domain["target"]),
@@ -408,6 +429,7 @@ def decision(index: int):
         mappings = load_proposals(OUTPUT_DIR)
         claude_run_groups = split_runs_for_mapping(OUTPUT_DIR, DOMAINS["assurance"]["domain_label"], mappings[index])
         openai_run_groups = split_openai_runs_for_mapping(OUTPUT_DIR, DOMAINS["assurance"]["domain_label"], mappings[index])
+        local_run_groups = split_local_runs_for_mapping(OUTPUT_DIR, DOMAINS["assurance"]["domain_label"], mappings[index])
         history_groups = mapping_history_context(mappings[index], DOMAINS["assurance"]["domain_label"])
         return render_template(
             "mapping_detail.html",
@@ -428,10 +450,13 @@ def decision(index: int):
             openai_model_options=OPENAI_MODEL_OPTIONS,
             default_openai_model=DEFAULT_OPENAI_MODEL,
             selected_openai_model=selected_openai_model("assurance"),
+            local_configured=local_llm_configured(),
             claude_runs=claude_run_groups["current"],
             historical_claude_runs=claude_run_groups["historical"],
             openai_runs=openai_run_groups["current"],
             historical_openai_runs=openai_run_groups["historical"],
+            local_runs=local_run_groups["current"],
+            historical_local_runs=local_run_groups["historical"],
             min_decision_reason_length=MIN_DECISION_REASON_LENGTH,
             discovery_source=session.get("assurance_discovery_source", WIRED_SOURCE),
             discovery_target=session.get("assurance_discovery_target", WIRED_TARGET),
@@ -499,6 +524,20 @@ def run_assurance_openai(index: int):
     return redirect(request.form.get("return_to") or url_for("index", _anchor=f"mapping-{index}"))
 
 
+@app.route("/mapping/<int:index>/local-run", methods=["POST"])
+def run_assurance_local(index: int):
+    if local_llm_configured():
+        mappings = load_proposals(OUTPUT_DIR)
+        if 0 <= index < len(mappings):
+            run_local_comparison(
+                OUTPUT_DIR,
+                DATA_DIR,
+                DOMAINS["assurance"]["domain_label"],
+                mappings[index],
+            )
+    return redirect(request.form.get("return_to") or url_for("index", _anchor=f"mapping-{index}"))
+
+
 @app.route("/order-management/mapping/<int:index>/decision", methods=["POST"])
 def order_decision(index: int):
     domain_key = "order_management"
@@ -520,6 +559,7 @@ def order_decision(index: int):
         mappings = load_proposals(OUTPUT_DIR, domain["proposal_file"])
         claude_run_groups = split_runs_for_mapping(OUTPUT_DIR, domain["domain_label"], mappings[index])
         openai_run_groups = split_openai_runs_for_mapping(OUTPUT_DIR, domain["domain_label"], mappings[index])
+        local_run_groups = split_local_runs_for_mapping(OUTPUT_DIR, domain["domain_label"], mappings[index])
         history_groups = mapping_history_context(mappings[index], domain["domain_label"])
         return render_template(
             "mapping_detail.html",
@@ -540,10 +580,13 @@ def order_decision(index: int):
             openai_model_options=OPENAI_MODEL_OPTIONS,
             default_openai_model=DEFAULT_OPENAI_MODEL,
             selected_openai_model=selected_openai_model(domain_key),
+            local_configured=local_llm_configured(),
             claude_runs=claude_run_groups["current"],
             historical_claude_runs=claude_run_groups["historical"],
             openai_runs=openai_run_groups["current"],
             historical_openai_runs=openai_run_groups["historical"],
+            local_runs=local_run_groups["current"],
+            historical_local_runs=local_run_groups["historical"],
             min_decision_reason_length=MIN_DECISION_REASON_LENGTH,
             discovery_source=session.get(f"{domain_key}_discovery_source", domain["source"]),
             discovery_target=session.get(f"{domain_key}_discovery_target", domain["target"]),
@@ -611,6 +654,21 @@ def run_order_openai(index: int):
                 domain["domain_label"],
                 mappings[index],
                 model=model,
+            )
+    return redirect(request.form.get("return_to") or url_for("order_management", _anchor=f"mapping-{index}"))
+
+
+@app.route("/order-management/mapping/<int:index>/local-run", methods=["POST"])
+def run_order_local(index: int):
+    domain = DOMAINS["order_management"]
+    if local_llm_configured():
+        mappings = load_proposals(OUTPUT_DIR, domain["proposal_file"])
+        if 0 <= index < len(mappings):
+            run_local_comparison(
+                OUTPUT_DIR,
+                domain["data_dir"],
+                domain["domain_label"],
+                mappings[index],
             )
     return redirect(request.form.get("return_to") or url_for("order_management", _anchor=f"mapping-{index}"))
 
@@ -747,6 +805,11 @@ def validate_openai_key(key: str) -> tuple[bool, str | None]:
         return False, _redacted_error(exc, key)
 
 
+def validate_local_settings(base_url: str, model: str) -> tuple[bool, str | None]:
+    valid, error, _models = validate_local_config(base_url, model)
+    return valid, error
+
+
 KEY_PROVIDERS = [
     {"provider": ANTHROPIC, "label": "Anthropic API key", "field": "anthropic_api_key", "env_var": "ANTHROPIC_API_KEY"},
     {"provider": OPENAI, "label": "OpenAI API key", "field": "openai_api_key", "env_var": "OPENAI_API_KEY"},
@@ -760,9 +823,19 @@ def settings_providers(results: dict) -> list[dict]:
     ]
 
 
+def local_settings_context(result: dict | None = None) -> dict:
+    return {
+        "source": local_config_source(),
+        "base_url": get_local_base_url() or "",
+        "model": get_local_model(),
+        "result": result,
+    }
+
+
 @app.route("/settings", methods=["GET", "POST"])
 def settings():
     results = {}
+    local_result = None
     if request.method == "POST":
         for spec in KEY_PROVIDERS:
             submitted = (request.form.get(spec["field"]) or "").strip()
@@ -775,9 +848,20 @@ def settings():
                 results[spec["provider"]] = {"state": "valid", "error": None}
             else:
                 results[spec["provider"]] = {"state": "invalid", "error": error}
+        local_base_url = (request.form.get("local_llm_base_url") or "").strip()
+        local_model = (request.form.get("local_llm_model") or "").strip()
+        if local_base_url or local_model:
+            valid, error = validate_local_settings(local_base_url, local_model)
+            if valid:
+                set_local_config(local_base_url, local_model)
+                local_result = {"state": "valid", "error": None}
+            else:
+                local_result = {"state": "invalid", "error": error}
     return render_template(
         "settings.html",
         providers=settings_providers(results),
+        local_status=local_llm_status(),
+        local_settings=local_settings_context(local_result),
         active_domain=None,
         active_nav="settings",
         view_title="Settings",
@@ -790,6 +874,12 @@ def settings_clear():
         clear_api_key(request.form.get("provider", ""))
     except ValueError:
         pass
+    return redirect(url_for("settings"))
+
+
+@app.route("/settings/local/clear", methods=["POST"])
+def settings_local_clear():
+    clear_local_config()
     return redirect(url_for("settings"))
 
 

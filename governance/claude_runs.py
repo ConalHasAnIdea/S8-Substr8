@@ -1,8 +1,8 @@
-import json
 import os
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Protocol
+
+from .run_log import append_run_log, build_run_record, last_demo_reset_timestamp, load_run_log, mapping_run_key
 
 
 RUN_LOG = "claude_engine_runs.jsonl"
@@ -24,12 +24,6 @@ class ClaudeEngineLike(Protocol):
         ...
 
 
-def mapping_run_key(domain: str, mapping: dict[str, Any]) -> str:
-    source_value = mapping.get("source_value")
-    destinations = ",".join(mapping.get("destination_fields", []))
-    return f"{domain}|{mapping.get('source_field')}|{source_value or ''}|{destinations}"
-
-
 def claude_model_label(model: str | None) -> str:
     model = model or DEFAULT_CLAUDE_MODEL
     for option in CLAUDE_MODEL_OPTIONS:
@@ -48,6 +42,10 @@ def normalize_claude_run(entry: dict[str, Any]) -> dict[str, Any]:
     normalized.setdefault("engine", "claude")
     normalized["model"] = allowed_claude_model(normalized.get("model"))
     normalized["model_label"] = claude_model_label(normalized["model"])
+    normalized.setdefault("claude_confidence_score", normalized.get("confidence_score"))
+    normalized.setdefault("claude_governance_status", normalized.get("governance_status"))
+    normalized.setdefault("claude_citations", normalized.get("citations", []))
+    normalized.setdefault("claude_reasoning", normalized.get("reasoning", ""))
     return normalized
 
 
@@ -67,31 +65,13 @@ def load_claude_runs(output_dir: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
     return [
-        normalize_claude_run(json.loads(line))
-        for line in path.read_text(encoding="utf-8").splitlines()
-        if line.strip()
+        normalize_claude_run(run)
+        for run in load_run_log(output_dir, RUN_LOG)
     ]
 
 
-def last_demo_reset_timestamp(output_dir: Path) -> str | None:
-    path = output_dir / "audit_log.jsonl"
-    if not path.exists():
-        return None
-    reset_timestamps = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        event = json.loads(line)
-        if event.get("action") == "demo_reset":
-            reset_timestamps.append(event.get("timestamp"))
-    return max(reset_timestamps) if reset_timestamps else None
-
-
 def append_claude_run(output_dir: Path, entry: dict[str, Any]) -> dict[str, Any]:
-    output_dir.mkdir(parents=True, exist_ok=True)
-    with (output_dir / RUN_LOG).open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(entry) + "\n")
-    return entry
+    return normalize_claude_run(append_run_log(output_dir, RUN_LOG, entry))
 
 
 def runs_for_mapping(output_dir: Path, domain: str, mapping: dict[str, Any]) -> list[dict[str, Any]]:
@@ -123,26 +103,9 @@ def run_claude_comparison(
     model: str | None = None,
 ) -> dict[str, Any]:
     model = allowed_claude_model(model)
-    entry = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "engine": "claude",
-        "model": model,
-        "model_label": claude_model_label(model),
-        "domain": domain,
-        "mapping_key": mapping_run_key(domain, mapping),
-        "source_field": mapping.get("source_field"),
-        "source_value": mapping.get("source_value"),
-        "destination_fields": mapping.get("destination_fields", []),
-        "mock_confidence_score": mapping.get("confidence_score"),
-        "mock_governance_status": mapping.get("governance_status"),
-        "claude_confidence_score": None,
-        "claude_governance_status": None,
-        "claude_citations": [],
-        "claude_reasoning": "",
-        "validation_flags": [],
-        "run_succeeded": False,
-        "error": None,
-    }
+    proposal: dict[str, Any] | None = None
+    run_succeeded = False
+    error = None
 
     try:
         if engine is None:
@@ -155,18 +118,28 @@ def run_claude_comparison(
             mapping.get("source_value"),
             mapping.get("destination_fields", []),
         )
-        entry.update({
-            "claude_confidence_score": result.get("confidence_score"),
-            "claude_governance_status": result.get("governance_status"),
-            "claude_citations": result.get("evidence_citations", []),
-            "claude_reasoning": result.get("reasoning", ""),
-            "validation_flags": result.get("validation_flags", []),
-            "run_succeeded": True,
-        })
+        proposal = result
+        run_succeeded = True
         if any("malformed" in flag for flag in result.get("validation_flags", [])):
-            entry["run_succeeded"] = False
-            entry["error"] = "; ".join(result["validation_flags"])
+            run_succeeded = False
+            error = "; ".join(result["validation_flags"])
     except Exception as exc:
-        entry["error"] = sanitize_error(exc)
+        error = sanitize_error(exc)
 
+    entry = build_run_record(
+        engine="claude",
+        model=model,
+        model_label=claude_model_label(model),
+        domain=domain,
+        mapping=mapping,
+        proposal=proposal,
+        run_succeeded=run_succeeded,
+        error=error,
+        legacy_fields={
+            "claude_confidence_score": proposal.get("confidence_score") if proposal else None,
+            "claude_governance_status": proposal.get("governance_status") if proposal else None,
+            "claude_citations": proposal.get("evidence_citations", []) if proposal else [],
+            "claude_reasoning": proposal.get("reasoning", "") if proposal else "",
+        },
+    )
     return append_claude_run(output_dir, entry)
