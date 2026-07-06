@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Any, Protocol
 
-from discovery.api_keys import get_local_base_url, get_local_model, local_config_source, validate_local_config
+from discovery.api_keys import get_local_base_url, get_local_model, list_local_models, local_config_source
 from .run_log import append_run_log, build_run_record, last_demo_reset_timestamp, load_run_log, mapping_run_key
 
 
@@ -30,8 +30,11 @@ def local_model_label(model: str | None = None) -> str:
 
 
 def local_llm_status(timeout: float = 1.5) -> dict[str, Any]:
+    """Endpoint reachability plus the live model list. Which model to actually
+    use for a given run is a discovery-screen, per-run choice (see
+    run_local_comparison's model parameter) - this status is about whether the
+    endpoint itself is reachable, not any one model."""
     base_url = get_local_base_url()
-    model = get_local_model()
     source = local_config_source()
     if not base_url:
         return {
@@ -40,18 +43,18 @@ def local_llm_status(timeout: float = 1.5) -> dict[str, Any]:
             "label": "Not configured",
             "message": "Set LOCAL_LLM_BASE_URL to enable the local engine.",
             "base_url": "",
-            "model": model,
+            "models": [],
             "source": None,
         }
 
-    valid, error, _models = validate_local_config(base_url, model, timeout=timeout)
+    reachable, error, models = list_local_models(base_url, timeout=timeout)
     return {
         "configured": True,
-        "reachable": valid,
-        "label": "Connected" if valid else "Not reachable",
-        "message": f"Reached {base_url}/api/tags." if valid else error,
+        "reachable": reachable,
+        "label": "Connected" if reachable else "Not reachable",
+        "message": f"Reached {base_url}/api/tags." if reachable else error,
         "base_url": base_url,
-        "model": model,
+        "models": models,
         "source": source,
     }
 
@@ -118,8 +121,13 @@ def run_local_comparison(
     domain: str,
     mapping: dict[str, Any],
     engine: LocalEngineLike | None = None,
+    model: str | None = None,
 ) -> dict[str, Any]:
-    model = local_model_label()
+    """model is a per-run parameter (picked from the live /api/tags dropdown
+    on the discovery screen), same as choosing which mapping to run against.
+    It is never required to come from settings or the environment - those are
+    only the fallback when no explicit model is passed for this call."""
+    model = local_model_label(model)
     proposal: dict[str, Any] | None = None
     run_succeeded = False
     error = None

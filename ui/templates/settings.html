@@ -9,15 +9,12 @@
 
 <section class="panel">
   <h3>Local Inference Endpoint</h3>
+  <p class="muted">Which model to use is chosen on the discovery screen at run time, pulled live from this endpoint - not set here.</p>
   <form method="post" action="{{ url_for('settings') }}" class="settings-form">
     <div class="key-row">
       <label>
         <span>Local endpoint URL</span>
         <input type="url" name="local_llm_base_url" autocomplete="off" value="{{ local_settings.base_url }}" placeholder="https://your-pod-endpoint">
-      </label>
-      <label>
-        <span>Local model name</span>
-        <input type="text" name="local_llm_model" autocomplete="off" value="{{ local_settings.model }}" placeholder="llama3.1">
       </label>
       {% if local_settings.result and local_settings.result.state == 'valid' %}
       <p><span class="status-pill status-approved">Valid</span> <span class="muted">Stored in memory for this session.</span></p>
@@ -45,7 +42,6 @@
   {% else %}
   <p><span class="status-pill status-needs-clarification">Not configured</span> <span class="muted">{{ local_status.message }}</span></p>
   {% endif %}
-  <p class="muted">Model: {{ local_status.model }}. Set LOCAL_LLM_MODEL or use the field above to change it.</p>
   {% if local_status.base_url %}
   <p class="muted">Endpoint: {{ local_status.base_url }}</p>
   {% endif %}

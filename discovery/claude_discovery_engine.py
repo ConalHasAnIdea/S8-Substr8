@@ -35,7 +35,7 @@ class FabricatedCitationError(Exception):
 
 
 class ClaudeDiscoveryEngine(DiscoveryEngine):
-    def __init__(self, model: str = "claude-sonnet-4-6", api_key: str | None = None):
+    def __init__(self, model: str = "claude-sonnet-5", api_key: str | None = None):
         if anthropic is None:
             raise RuntimeError(
                 "The 'anthropic' package is not installed. Run: "

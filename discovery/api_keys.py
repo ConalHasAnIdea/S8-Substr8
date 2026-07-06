@@ -11,7 +11,7 @@ values entered on the settings page override the environment for the session.
 import json
 import os
 from urllib.error import HTTPError, URLError
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 ANTHROPIC = "anthropic"
 OPENAI = "openai"
@@ -24,6 +24,38 @@ ENV_VARS = {
 LOCAL_BASE_URL_ENV = "LOCAL_LLM_BASE_URL"
 LOCAL_MODEL_ENV = "LOCAL_LLM_MODEL"
 DEFAULT_LOCAL_MODEL = "llama3.1"
+
+# Ollama's native REST verbs. If someone pastes the full endpoint they'd use
+# to actually call the model (e.g. https://host/api/generate, copied straight
+# from a RunPod/Ollama quickstart) instead of just the base URL, strip it back
+# down rather than silently building a broken doubled-up path like
+# https://host/api/generate/api/tags.
+_KNOWN_OLLAMA_API_VERBS = {
+    "generate", "chat", "tags", "show", "create", "copy", "delete",
+    "pull", "push", "ps", "embed", "embeddings",
+}
+
+
+def normalize_local_base_url(base_url: str) -> str:
+    base_url = (base_url or "").strip().rstrip("/")
+    if not base_url:
+        return ""
+    segments = base_url.split("/")
+    if len(segments) >= 2 and segments[-2] == "api" and segments[-1] in _KNOWN_OLLAMA_API_VERBS:
+        segments = segments[:-2]
+    elif segments[-1] == "api":
+        segments = segments[:-1]
+    return "/".join(segments).rstrip("/")
+
+
+def _local_endpoint_opener(url: str, timeout: float):
+    """Default opener for local-endpoint checks. Some reverse proxies in
+    front of self-hosted models (observed with a RunPod proxy) return 403 for
+    Python's default urllib User-Agent while a browser-like one works fine, so
+    send a real one rather than let a working endpoint look unreachable."""
+    request = Request(url, headers={"User-Agent": "Mozilla/5.0 (Substr8 local-engine health check)"})
+    return urlopen(request, timeout=timeout)
+
 
 _STORE: dict[str, str] = {}
 _LOCAL_STORE: dict[str, str] = {}
@@ -62,12 +94,13 @@ def key_source(provider: str) -> str | None:
     return None
 
 
-def set_local_config(base_url: str, model: str | None = None) -> None:
-    base_url = base_url.strip().rstrip("/")
+def set_local_config(base_url: str) -> None:
+    """Local settings hold only the endpoint URL. Which model to use is a
+    discovery-screen, per-run choice, not something saved here."""
+    base_url = normalize_local_base_url(base_url)
     if not base_url:
         raise ValueError("Local endpoint URL must be non-empty.")
     _LOCAL_STORE["base_url"] = base_url
-    _LOCAL_STORE["model"] = (model or DEFAULT_LOCAL_MODEL).strip() or DEFAULT_LOCAL_MODEL
 
 
 def clear_local_config() -> None:
@@ -75,11 +108,14 @@ def clear_local_config() -> None:
 
 
 def get_local_base_url() -> str | None:
-    return _LOCAL_STORE.get("base_url") or (os.environ.get(LOCAL_BASE_URL_ENV) or "").strip().rstrip("/") or None
+    raw = _LOCAL_STORE.get("base_url") or os.environ.get(LOCAL_BASE_URL_ENV) or ""
+    return normalize_local_base_url(raw) or None
 
 
 def get_local_model() -> str:
-    return _LOCAL_STORE.get("model") or (os.environ.get(LOCAL_MODEL_ENV) or "").strip() or DEFAULT_LOCAL_MODEL
+    """Env var / default fallback only, for callers with no explicit per-run
+    model (e.g. the CLI probes). The settings page never sets this."""
+    return (os.environ.get(LOCAL_MODEL_ENV) or "").strip() or DEFAULT_LOCAL_MODEL
 
 
 def local_config_source() -> str | None:
@@ -90,14 +126,12 @@ def local_config_source() -> str | None:
     return None
 
 
-def validate_local_config(
+def _query_local_tags(
     base_url: str,
-    model: str | None,
-    timeout: float = 1.5,
-    opener=urlopen,
+    timeout: float,
+    opener,
 ) -> tuple[bool, str | None, list[str]]:
-    base_url = base_url.strip().rstrip("/")
-    model = (model or DEFAULT_LOCAL_MODEL).strip() or DEFAULT_LOCAL_MODEL
+    base_url = normalize_local_base_url(base_url)
     if not base_url:
         return False, "LOCAL_LLM_BASE_URL is not set. Enter a local endpoint URL.", []
 
@@ -122,7 +156,35 @@ def validate_local_config(
         for item in payload.get("models", [])
         if isinstance(item, dict) and (item.get("name") or item.get("model"))
     })
+    return True, None, models
+
+
+def list_local_models(
+    base_url: str | None = None,
+    timeout: float = 1.5,
+    opener=_local_endpoint_opener,
+) -> tuple[bool, str | None, list[str]]:
+    """Reachability plus the live model list, with no specific model required.
+    Used to populate the discovery screen's model dropdown live from
+    /api/tags, and to validate the endpoint URL on the settings page (which
+    only ever cares whether the endpoint itself is reachable)."""
+    resolved = base_url if base_url is not None else (get_local_base_url() or "")
+    return _query_local_tags(resolved, timeout, opener)
+
+
+def validate_local_config(
+    base_url: str,
+    model: str | None,
+    timeout: float = 1.5,
+    opener=_local_endpoint_opener,
+) -> tuple[bool, str | None, list[str]]:
+    """Reachability AND a specific model's presence at that endpoint."""
+    model = (model or DEFAULT_LOCAL_MODEL).strip() or DEFAULT_LOCAL_MODEL
+    reachable, error, models = _query_local_tags(base_url, timeout, opener)
+    if not reachable:
+        return False, error, []
     if model not in models:
+        tags_url = f"{normalize_local_base_url(base_url)}/api/tags"
         return (
             False,
             f"Model {model!r} was not found at {tags_url}. Available models: {', '.join(models) if models else 'none'}.",

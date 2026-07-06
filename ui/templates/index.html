@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_status_help.html" as sh %}
 
 {% block title %}Substr8 Review Queue{% endblock %}
 
@@ -27,27 +28,53 @@
         </select>
       </label>
 
-      <label>
-        <span>Discovery Engine</span>
-        <select name="discovery_engine" title="Disabled engines are not available in this build">
-          <option value="{{ mock_engine_label }}" selected>{{ mock_engine_label }}</option>
-          {% if claude_configured %}
-          <option value="{{ claude_engine_label }}">{{ claude_engine_label }}</option>
+    </div>
+
+    <div class="engine-selector">
+      <span class="engine-selector-label">Discovery Engine</span>
+      <div class="engine-panes">
+        <label class="engine-pane">
+          <input type="radio" name="discovery_engine" value="{{ mock_engine_label }}" checked>
+          <span class="engine-pane-title">Mock</span>
+          <span class="muted">Deterministic baseline. No configuration needed.</span>
+        </label>
+
+        <label class="engine-pane {{ 'engine-pane-disabled' if not (local_configured and local_reachable) else '' }}" title="Disabled engines are not available in this build">
+          <input type="radio" name="discovery_engine" value="{{ local_engine_label }}" {% if not (local_configured and local_reachable) %}disabled{% endif %}>
+          <span class="engine-pane-title">Local (self hosted)</span>
+          {% if not local_configured %}
+          <span class="muted">Not configured. Set an endpoint on the Settings page.</span>
+          {% elif not local_reachable %}
+          <span class="error-inline">Unreachable: {{ local_status_message }}</span>
           {% else %}
-          <option disabled>Claude - Not configured</option>
+          <label class="model-run-control">
+            <span>Model</span>
+            <select name="local_model">
+              {% for option in local_models %}
+              <option value="{{ option }}" {% if option == selected_local_model %}selected{% endif %}>{{ option }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <span class="muted">Pulled live from {{ local_base_url }}/api/tags.</span>
           {% endif %}
-          {% if openai_configured %}
-          <option value="{{ openai_engine_label }}">{{ openai_engine_label }}</option>
+        </label>
+
+        <label class="engine-pane {{ 'engine-pane-disabled' if not (claude_configured or openai_configured) else '' }}" title="Disabled engines are not available in this build">
+          <input type="radio" name="discovery_engine" value="{{ frontier_engine_label }}" {% if not (claude_configured or openai_configured) %}disabled{% endif %}>
+          <span class="engine-pane-title">FrontierLLM</span>
+          {% if not (claude_configured or openai_configured) %}
+          <span class="muted">Not configured. Set an API key on the Settings page.</span>
           {% else %}
-          <option disabled>OpenAI GPT-5.5 - Not configured</option>
+          <label class="model-run-control">
+            <span>Model</span>
+            <select name="frontier_provider">
+              <option value="openai" {% if not openai_configured %}disabled{% endif %} {% if selected_frontier_provider == 'openai' %}selected{% endif %}>ChatGPT-5.5{% if not openai_configured %} - Not configured{% endif %}</option>
+              <option value="claude" {% if not claude_configured %}disabled{% endif %} {% if selected_frontier_provider == 'claude' %}selected{% endif %}>Claude Sonnet 5{% if not claude_configured %} - Not configured{% endif %}</option>
+            </select>
+          </label>
           {% endif %}
-          {% if local_configured %}
-          <option value="{{ local_engine_label }}">{{ local_engine_label }}</option>
-          {% else %}
-          <option disabled>Local (self hosted) - Not configured</option>
-          {% endif %}
-        </select>
-      </label>
+        </label>
+      </div>
     </div>
 
     {% include "_corpus_summary.html" %}
@@ -92,7 +119,7 @@
         </div>
         <div class="metrics">
           <span class="confidence">Mock confidence {{ mapping.confidence_score if mapping.confidence_score is not none else 'None' }}</span>
-          <span class="status-pill status-{{ mapping.governance_status|status_class }}">{{ mapping.governance_status }}</span>
+          <span class="status-pill status-{{ mapping.governance_status|status_class }}">{{ mapping.governance_status }}</span>{{ sh.status_help(mapping.governance_status) }}
         </div>
       </div>
 
@@ -116,7 +143,7 @@
       {% endif %}
 
       <div class="claude-comparison">
-        <p class="muted">Mock is deterministic for this evidence set. Claude, GPT-5.5, and Local (self hosted) are model responses from one run at one moment; repeat runs and different models may differ.</p>
+        <p class="muted">Mock is deterministic for this evidence set. FrontierLLM and Local (self hosted) are model responses from one run at one moment; repeat runs and different models may differ.</p>
         <div class="comparison-grid">
           <div class="comparison-panel">
             <h4>Substr8 Mock</h4>
@@ -125,146 +152,83 @@
           </div>
           <div class="comparison-panel">
             <div class="comparison-heading">
-              <h4>Anthropic</h4>
-              <form method="post" action="{{ url_for(domain.claude_route, index=item.index) }}" class="claude-run-form">
+              <h4>FrontierLLM</h4>
+              <form method="post" action="{{ url_for(domain.frontier_route, index=item.index) }}" class="claude-run-form">
                 <input type="hidden" name="return_to" value="{{ url_for(domain.route, _anchor='mapping-' ~ item.index) }}">
                 <label class="model-run-control">
                   <span>Model</span>
-                  <select name="claude_model" {% if not claude_configured %}disabled{% endif %}>
-                    {% for option in claude_model_options %}
-                    <option value="{{ option.value }}" {% if option.value == selected_claude_model %}selected{% endif %}>{{ option.label }}</option>
-                    {% endfor %}
+                  <select name="frontier_provider" {% if not (claude_configured or openai_configured) %}disabled{% endif %}>
+                    <option value="openai" {% if not openai_configured %}disabled{% endif %} {% if selected_frontier_provider == 'openai' %}selected{% endif %}>ChatGPT-5.5</option>
+                    <option value="claude" {% if not claude_configured %}disabled{% endif %} {% if selected_frontier_provider == 'claude' %}selected{% endif %}>Claude Sonnet 5</option>
                   </select>
                 </label>
-                <button type="submit" class="secondary-button" {% if not claude_configured %}disabled{% endif %}>
-                  {{ 'Run with Claude' if claude_configured else 'Claude not configured' }}
+                <button type="submit" class="secondary-button" {% if not (claude_configured or openai_configured) %}disabled{% endif %}>
+                  {{ 'Run FrontierLLM' if (claude_configured or openai_configured) else 'FrontierLLM not configured' }}
                 </button>
               </form>
             </div>
-            {% if item.claude_runs %}
-              {% for run in item.claude_runs %}
+            {% if item.frontier_runs %}
+              {% for run in item.frontier_runs %}
               <div class="claude-run {{ 'failed' if not run.run_succeeded else '' }}">
                 <div class="summary">
                   <span>{{ run.timestamp }}</span>
-                  <span>{{ run.model_label|default('Claude Sonnet 4.6') }}</span>
+                  <span>{{ run.frontier_provider_label }} - {{ run.model_label }}</span>
                   <span>{{ 'Succeeded' if run.run_succeeded else 'Failed' }}</span>
                 </div>
                 {% if run.run_succeeded %}
-                {% set claude_status = run.claude_governance_status or 'Needs Clarification' %}
-                <span class="confidence">Confidence {{ run.claude_confidence_score if run.claude_confidence_score is not none else 'None' }}</span>
-                <span class="status-pill status-{{ claude_status|status_class }}">{{ claude_status }}</span>
-                <p>{{ run.claude_reasoning }}</p>
-                {% if run.claude_citations %}
-                <p class="muted">Citations: {{ run.claude_citations|join(', ') }}</p>
+                {% set frontier_status = run.governance_status or 'Needs Clarification' %}
+                <span class="confidence">Confidence {{ run.confidence_score if run.confidence_score is not none else 'None' }}</span>
+                <span class="status-pill status-{{ frontier_status|status_class }}">{{ frontier_status }}</span>{{ sh.status_help(frontier_status) }}
+                <p>{{ run.reasoning }}</p>
+                {% if run.citations %}
+                <p class="muted">Citations: {{ run.citations|join(', ') }}</p>
                 {% endif %}
                 {% if run.validation_flags %}
                 <p class="error-inline">Validation: {{ run.validation_flags|join('; ') }}</p>
                 {% endif %}
                 {% else %}
-                <p class="error-inline">Claude engine error: {{ run.error }}</p>
+                <p class="error-inline">{{ run.frontier_provider_label }} engine error: {{ run.error }}</p>
+                {% endif %}
+                {% if run.proposal and run.proposal.raw_response %}
+                <details class="historical-results">
+                  <summary>Show raw model response</summary>
+                  <pre>{{ run.proposal.raw_response }}</pre>
+                </details>
                 {% endif %}
               </div>
               {% endfor %}
             {% else %}
-            <p class="empty">No Claude comparison runs recorded for this mapping.</p>
+            <p class="empty">No FrontierLLM comparison runs recorded for this mapping.</p>
             {% endif %}
-            {% if item.historical_claude_runs %}
+            {% if item.historical_frontier_runs %}
             <details class="historical-results">
               <summary>Show Historical Logs</summary>
-              {% for run in item.historical_claude_runs %}
+              {% for run in item.historical_frontier_runs %}
               <div class="claude-run historical {{ 'failed' if not run.run_succeeded else '' }}">
                 <div class="summary">
                   <span>{{ run.timestamp }}</span>
-                  <span>{{ run.model_label|default('Claude Sonnet 4.6') }}</span>
+                  <span>{{ run.frontier_provider_label }} - {{ run.model_label }}</span>
                   <span>{{ 'Succeeded' if run.run_succeeded else 'Failed' }}</span>
                 </div>
                 {% if run.run_succeeded %}
-                {% set claude_status = run.claude_governance_status or 'Needs Clarification' %}
-                <span class="confidence">Confidence {{ run.claude_confidence_score if run.claude_confidence_score is not none else 'None' }}</span>
-                <span class="status-pill status-{{ claude_status|status_class }}">{{ claude_status }}</span>
-                <p>{{ run.claude_reasoning }}</p>
-                {% if run.claude_citations %}
-                <p class="muted">Citations: {{ run.claude_citations|join(', ') }}</p>
+                {% set frontier_status = run.governance_status or 'Needs Clarification' %}
+                <span class="confidence">Confidence {{ run.confidence_score if run.confidence_score is not none else 'None' }}</span>
+                <span class="status-pill status-{{ frontier_status|status_class }}">{{ frontier_status }}</span>{{ sh.status_help(frontier_status) }}
+                <p>{{ run.reasoning }}</p>
+                {% if run.citations %}
+                <p class="muted">Citations: {{ run.citations|join(', ') }}</p>
                 {% endif %}
                 {% if run.validation_flags %}
                 <p class="error-inline">Validation: {{ run.validation_flags|join('; ') }}</p>
                 {% endif %}
                 {% else %}
-                <p class="error-inline">Claude engine error: {{ run.error }}</p>
+                <p class="error-inline">{{ run.frontier_provider_label }} engine error: {{ run.error }}</p>
                 {% endif %}
-              </div>
-              {% endfor %}
-            </details>
-            {% endif %}
-          </div>
-          <div class="comparison-panel">
-            <div class="comparison-heading">
-              <h4>OpenAI</h4>
-              <form method="post" action="{{ url_for(domain.openai_route, index=item.index) }}" class="openai-run-form">
-                <input type="hidden" name="return_to" value="{{ url_for(domain.route, _anchor='mapping-' ~ item.index) }}">
-                <label class="model-run-control">
-                  <span>Model</span>
-                  <select name="openai_model" {% if not openai_configured %}disabled{% endif %}>
-                    {% for option in openai_model_options %}
-                    <option value="{{ option.value }}" {% if option.value == selected_openai_model %}selected{% endif %}>{{ option.label }}</option>
-                    {% endfor %}
-                  </select>
-                </label>
-                <button type="submit" class="secondary-button" {% if not openai_configured %}disabled{% endif %}>
-                  {{ 'Run with ChatGPT' if openai_configured else 'ChatGPT not configured' }}
-                </button>
-              </form>
-            </div>
-            {% if item.openai_runs %}
-              {% for run in item.openai_runs %}
-              <div class="claude-run {{ 'failed' if not run.run_succeeded else '' }}">
-                <div class="summary">
-                  <span>{{ run.timestamp }}</span>
-                  <span>{{ run.model_label|default('ChatGPT-5.5') }}</span>
-                  <span>{{ 'Succeeded' if run.run_succeeded else 'Failed' }}</span>
-                </div>
-                {% if run.run_succeeded %}
-                {% set openai_status = run.engine_governance_status or 'Needs Clarification' %}
-                <span class="confidence">Confidence {{ run.engine_confidence_score if run.engine_confidence_score is not none else 'None' }}</span>
-                <span class="status-pill status-{{ openai_status|status_class }}">{{ openai_status }}</span>
-                <p>{{ run.engine_reasoning }}</p>
-                {% if run.engine_citations %}
-                <p class="muted">Citations: {{ run.engine_citations|join(', ') }}</p>
-                {% endif %}
-                {% if run.validation_flags %}
-                <p class="error-inline">Validation: {{ run.validation_flags|join('; ') }}</p>
-                {% endif %}
-                {% else %}
-                <p class="error-inline">OpenAI engine error: {{ run.error }}</p>
-                {% endif %}
-              </div>
-              {% endfor %}
-            {% else %}
-            <p class="empty">No OpenAI comparison runs recorded for this mapping.</p>
-            {% endif %}
-            {% if item.historical_openai_runs %}
-            <details class="historical-results">
-              <summary>Show Historical Logs</summary>
-              {% for run in item.historical_openai_runs %}
-              <div class="claude-run historical {{ 'failed' if not run.run_succeeded else '' }}">
-                <div class="summary">
-                  <span>{{ run.timestamp }}</span>
-                  <span>{{ run.model_label|default('ChatGPT-5.5') }}</span>
-                  <span>{{ 'Succeeded' if run.run_succeeded else 'Failed' }}</span>
-                </div>
-                {% if run.run_succeeded %}
-                {% set openai_status = run.engine_governance_status or 'Needs Clarification' %}
-                <span class="confidence">Confidence {{ run.engine_confidence_score if run.engine_confidence_score is not none else 'None' }}</span>
-                <span class="status-pill status-{{ openai_status|status_class }}">{{ openai_status }}</span>
-                <p>{{ run.engine_reasoning }}</p>
-                {% if run.engine_citations %}
-                <p class="muted">Citations: {{ run.engine_citations|join(', ') }}</p>
-                {% endif %}
-                {% if run.validation_flags %}
-                <p class="error-inline">Validation: {{ run.validation_flags|join('; ') }}</p>
-                {% endif %}
-                {% else %}
-                <p class="error-inline">OpenAI engine error: {{ run.error }}</p>
+                {% if run.proposal and run.proposal.raw_response %}
+                <details class="historical-results">
+                  <summary>Show raw model response</summary>
+                  <pre>{{ run.proposal.raw_response }}</pre>
+                </details>
                 {% endif %}
               </div>
               {% endfor %}
@@ -276,10 +240,21 @@
               <h4>Local (self hosted)</h4>
               <form method="post" action="{{ url_for(domain.local_route, index=item.index) }}" class="local-run-form">
                 <input type="hidden" name="return_to" value="{{ url_for(domain.route, _anchor='mapping-' ~ item.index) }}">
+                <label class="model-run-control">
+                  <span>Model</span>
+                  <select name="local_model" {% if not (local_configured and local_reachable) %}disabled{% endif %}>
+                    {% for option in local_models %}
+                    <option value="{{ option }}" {% if option == selected_local_model %}selected{% endif %}>{{ option }}</option>
+                    {% endfor %}
+                  </select>
+                </label>
                 <button type="submit" class="secondary-button" {% if not local_configured %}disabled{% endif %}>
                   {{ 'Run local model' if local_configured else 'Local not configured' }}
                 </button>
               </form>
+              {% if local_configured and not local_reachable %}
+              <p class="error-inline">Unreachable: {{ local_status_message }}</p>
+              {% endif %}
             </div>
             {% if item.local_runs %}
               {% for run in item.local_runs %}
@@ -292,7 +267,7 @@
                 {% if run.run_succeeded %}
                 {% set local_status = run.engine_governance_status or 'Needs Clarification' %}
                 <span class="confidence">Confidence {{ run.engine_confidence_score if run.engine_confidence_score is not none else 'None' }}</span>
-                <span class="status-pill status-{{ local_status|status_class }}">{{ local_status }}</span>
+                <span class="status-pill status-{{ local_status|status_class }}">{{ local_status }}</span>{{ sh.status_help(local_status) }}
                 <p>{{ run.engine_reasoning }}</p>
                 {% if run.engine_citations %}
                 <p class="muted">Citations: {{ run.engine_citations|join(', ') }}</p>
@@ -302,6 +277,12 @@
                 {% endif %}
                 {% else %}
                 <p class="error-inline">Local engine error: {{ run.error }}</p>
+                {% endif %}
+                {% if run.proposal and run.proposal.raw_response %}
+                <details class="historical-results">
+                  <summary>Show raw model response</summary>
+                  <pre>{{ run.proposal.raw_response }}</pre>
+                </details>
                 {% endif %}
               </div>
               {% endfor %}
@@ -321,7 +302,7 @@
                 {% if run.run_succeeded %}
                 {% set local_status = run.engine_governance_status or 'Needs Clarification' %}
                 <span class="confidence">Confidence {{ run.engine_confidence_score if run.engine_confidence_score is not none else 'None' }}</span>
-                <span class="status-pill status-{{ local_status|status_class }}">{{ local_status }}</span>
+                <span class="status-pill status-{{ local_status|status_class }}">{{ local_status }}</span>{{ sh.status_help(local_status) }}
                 <p>{{ run.engine_reasoning }}</p>
                 {% if run.engine_citations %}
                 <p class="muted">Citations: {{ run.engine_citations|join(', ') }}</p>
@@ -331,6 +312,12 @@
                 {% endif %}
                 {% else %}
                 <p class="error-inline">Local engine error: {{ run.error }}</p>
+                {% endif %}
+                {% if run.proposal and run.proposal.raw_response %}
+                <details class="historical-results">
+                  <summary>Show raw model response</summary>
+                  <pre>{{ run.proposal.raw_response }}</pre>
+                </details>
                 {% endif %}
               </div>
               {% endfor %}
@@ -355,20 +342,7 @@
       const row = form.closest(".mapping-row");
       if (button) {
         button.disabled = true;
-        button.textContent = "Running Claude...";
-      }
-      if (row) {
-        row.classList.add("is-loading");
-      }
-    });
-  });
-  document.querySelectorAll(".openai-run-form").forEach((form) => {
-    form.addEventListener("submit", () => {
-      const button = form.querySelector("button");
-      const row = form.closest(".mapping-row");
-      if (button) {
-        button.disabled = true;
-        button.textContent = "Running ChatGPT...";
+        button.textContent = "Running FrontierLLM...";
       }
       if (row) {
         row.classList.add("is-loading");

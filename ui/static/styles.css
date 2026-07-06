@@ -258,6 +258,22 @@ a {
   font-weight: 700;
 }
 
+.status-help-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  margin-left: var(--space-1);
+  border-radius: 50%;
+  background: var(--color-border-strong);
+  color: var(--color-surface);
+  font-size: var(--type-xs);
+  font-style: italic;
+  font-weight: 800;
+  cursor: help;
+  user-select: none;
+}
+
 .topbar-context span {
   background: var(--color-accent-soft);
   color: var(--color-accent);
@@ -354,6 +370,54 @@ select {
 
 option:disabled {
   color: var(--color-text-muted);
+}
+
+.engine-selector {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.engine-selector-label {
+  color: var(--color-text-secondary);
+  font-size: var(--type-sm);
+  font-weight: 800;
+}
+
+.engine-panes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(220px, 1fr));
+  gap: var(--space-4);
+}
+
+.engine-pane {
+  display: grid;
+  gap: var(--space-2);
+  align-content: start;
+  padding: var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.engine-pane-disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.engine-pane-title {
+  font-weight: 800;
+}
+
+.engine-pane-group {
+  cursor: default;
+}
+
+.engine-pane-option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
 }
 
 .corpus-panel {
@@ -628,7 +692,8 @@ option:disabled {
 }
 
 .claude-run-form,
-.openai-run-form {
+.openai-run-form,
+.local-run-form {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
@@ -1092,7 +1157,8 @@ th {
 
   .selector-controls,
   .corpus-grid,
-  .comparison-grid {
+  .comparison-grid,
+  .engine-panes {
     grid-template-columns: 1fr;
   }
 

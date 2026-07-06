@@ -10,6 +10,9 @@ from discovery.api_keys import (
     LOCAL_BASE_URL_ENV,
     LOCAL_MODEL_ENV,
     clear_local_config,
+    get_local_base_url,
+    list_local_models,
+    normalize_local_base_url,
     set_local_config,
     validate_local_config,
 )
@@ -179,13 +182,13 @@ def test_local_status_pings_api_tags_without_real_network(monkeypatch):
     assert models == ["mistral-local"]
     assert calls == [("http://local-pod.example/api/tags", 0.25)]
 
-    set_local_config("http://local-pod.example", "mistral-local")
-    monkeypatch.setattr(local_runs, "validate_local_config", lambda base_url, model, timeout=1.5: (True, None, ["mistral-local"]))
+    set_local_config("http://local-pod.example")
+    monkeypatch.setattr(local_runs, "list_local_models", lambda base_url, timeout=1.5: (True, None, ["mistral-local"]))
     status = local_runs.local_llm_status(timeout=0.25)
     assert status["configured"] is True
     assert status["reachable"] is True
     assert status["label"] == "Connected"
-    assert status["model"] == "mistral-local"
+    assert status["models"] == ["mistral-local"]
     assert status["source"] == "settings"
 
 
@@ -197,3 +200,186 @@ def test_local_status_reports_missing_endpoint_without_network(monkeypatch):
     assert status["configured"] is False
     assert status["reachable"] is False
     assert "Set LOCAL_LLM_BASE_URL" in status["message"]
+
+
+def test_list_local_models_returns_available_models_without_requiring_a_match():
+    class FakeResponse:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return b'{"models": [{"name": "llama3.1"}, {"name": "mistral-local"}]}'
+
+    def fake_urlopen(url, timeout):
+        return FakeResponse()
+
+    reachable, error, models = list_local_models(
+        "http://local-pod.example",
+        timeout=0.25,
+        opener=fake_urlopen,
+    )
+
+    assert reachable is True
+    assert error is None
+    assert models == ["llama3.1", "mistral-local"]
+
+
+def test_list_local_models_reports_unreachable_state_distinctly_from_missing_model():
+    import urllib.error
+
+    def fake_urlopen(url, timeout):
+        raise urllib.error.URLError(ConnectionRefusedError("Connection refused"))
+
+    reachable, error, models = list_local_models(
+        "http://local-pod.example",
+        timeout=0.25,
+        opener=fake_urlopen,
+    )
+
+    assert reachable is False
+    assert "Could not reach" in error
+    assert models == []
+
+
+def test_run_local_comparison_uses_explicit_model_parameter_over_env_and_default(monkeypatch, tmp_path):
+    monkeypatch.setenv(LOCAL_MODEL_ENV, "env-model")
+
+    class FakeEngine:
+        def __init__(self):
+            self.received_model = None
+
+        def propose_one(self, data_dir, source_field, source_value, destination_fields):
+            return {
+                "source_field": source_field,
+                "source_value": source_value,
+                "destination_fields": destination_fields,
+                "transformation_logic": "link_down -> assignment_group=Transport NOC",
+                "confidence_score": 0.86,
+                "reasoning": "Evidence supports Transport NOC.",
+                "evidence_citations": ["TKT-1001"],
+                "governance_status": "Pending Approval",
+                "validation_flags": [],
+            }
+
+    mapping = {
+        "source_field": "probableCause",
+        "source_value": "link_down",
+        "destination_fields": ["assignment_group"],
+        "confidence_score": 0.86,
+        "governance_status": "Pending Approval",
+    }
+
+    entry = local_runs.run_local_comparison(
+        tmp_path,
+        DATA_DIR,
+        "Assurance",
+        mapping,
+        engine=FakeEngine(),
+        model="picked-from-dropdown",
+    )
+
+    assert entry["model"] == "picked-from-dropdown"
+    assert entry["model_label"] == "picked-from-dropdown"
+
+
+def test_run_local_comparison_falls_back_to_env_when_no_model_given(monkeypatch, tmp_path):
+    monkeypatch.setenv(LOCAL_MODEL_ENV, "env-model")
+
+    class FakeEngine:
+        def propose_one(self, data_dir, source_field, source_value, destination_fields):
+            return {
+                "source_field": source_field,
+                "source_value": source_value,
+                "destination_fields": destination_fields,
+                "transformation_logic": "link_down -> assignment_group=Transport NOC",
+                "confidence_score": 0.86,
+                "reasoning": "Evidence supports Transport NOC.",
+                "evidence_citations": ["TKT-1001"],
+                "governance_status": "Pending Approval",
+                "validation_flags": [],
+            }
+
+    mapping = {
+        "source_field": "probableCause",
+        "source_value": "link_down",
+        "destination_fields": ["assignment_group"],
+        "confidence_score": 0.86,
+        "governance_status": "Pending Approval",
+    }
+
+    entry = local_runs.run_local_comparison(
+        tmp_path,
+        DATA_DIR,
+        "Assurance",
+        mapping,
+        engine=FakeEngine(),
+    )
+
+    assert entry["model"] == "env-model"
+
+
+def test_normalize_strips_pasted_generate_endpoint_down_to_base_url():
+    assert (
+        normalize_local_base_url("https://9fs2yfo9dv05wz-11434.proxy.runpod.net/api/generate")
+        == "https://9fs2yfo9dv05wz-11434.proxy.runpod.net"
+    )
+
+
+def test_normalize_strips_other_known_ollama_api_verbs():
+    assert normalize_local_base_url("http://localhost:11434/api/chat") == "http://localhost:11434"
+    assert normalize_local_base_url("http://localhost:11434/api/tags") == "http://localhost:11434"
+    assert normalize_local_base_url("http://localhost:11434/api/tags/") == "http://localhost:11434"
+
+
+def test_normalize_strips_bare_trailing_api_segment():
+    assert normalize_local_base_url("http://localhost:11434/api") == "http://localhost:11434"
+
+
+def test_normalize_leaves_a_clean_base_url_untouched():
+    assert normalize_local_base_url("http://localhost:11434") == "http://localhost:11434"
+
+
+def test_normalize_does_not_mistake_an_api_subdomain_for_the_suffix():
+    assert normalize_local_base_url("https://api.example.com") == "https://api.example.com"
+
+
+def test_set_local_config_normalizes_a_pasted_generate_endpoint(monkeypatch):
+    set_local_config("https://9fs2yfo9dv05wz-11434.proxy.runpod.net/api/generate")
+
+    assert get_local_base_url() == "https://9fs2yfo9dv05wz-11434.proxy.runpod.net"
+
+
+def test_list_local_models_succeeds_against_a_pasted_generate_endpoint():
+    calls = []
+
+    class FakeResponse:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return b'{"models": [{"name": "llama3.1"}]}'
+
+    def fake_urlopen(url, timeout):
+        calls.append(url)
+        return FakeResponse()
+
+    reachable, error, models = list_local_models(
+        "https://9fs2yfo9dv05wz-11434.proxy.runpod.net/api/generate",
+        timeout=0.25,
+        opener=fake_urlopen,
+    )
+
+    assert reachable is True
+    assert error is None
+    assert models == ["llama3.1"]
+    assert calls == ["https://9fs2yfo9dv05wz-11434.proxy.runpod.net/api/tags"]

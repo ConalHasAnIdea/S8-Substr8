@@ -1,0 +1,1 @@
+{% macro status_help(status) %}{% set help = status|status_help_text %}{% if help %}<span class="status-help-icon" tabindex="0" title="{{ help }}">i</span>{% endif %}{% endmacro %}

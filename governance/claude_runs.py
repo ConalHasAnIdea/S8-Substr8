@@ -6,9 +6,9 @@ from .run_log import append_run_log, build_run_record, last_demo_reset_timestamp
 
 
 RUN_LOG = "claude_engine_runs.jsonl"
-DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-6"
+DEFAULT_CLAUDE_MODEL = "claude-sonnet-5"
 CLAUDE_MODEL_OPTIONS = [
-    {"value": "claude-sonnet-4-6", "label": "Claude Sonnet 4.6"},
+    {"value": "claude-sonnet-5", "label": "Claude Sonnet 5"},
     {"value": "claude-opus-4-8", "label": "Claude Opus 4.8"},
 ]
 

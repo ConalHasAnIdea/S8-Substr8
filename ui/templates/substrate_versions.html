@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_status_help.html" as sh %}
 
 {% block title %}Substr8 Substrate Versions{% endblock %}
 
@@ -37,7 +38,7 @@
       <div class="preview-row">
         <strong>{{ item.label }}</strong>
         <span>{{ item.domain }}</span>
-        <span class="status-pill status-{{ item.status|status_class }}">{{ item.status }}</span>
+        <span class="status-pill status-{{ item.status|status_class }}">{{ item.status }}</span>{{ sh.status_help(item.status) }}
       </div>
       {% endfor %}
     </div>
@@ -51,7 +52,7 @@
       <div class="preview-row">
         <strong>{{ item.label }}</strong>
         <span>{{ item.domain }}</span>
-        <span class="status-pill status-{{ item.status|status_class }}">{{ item.status }}</span>
+        <span class="status-pill status-{{ item.status|status_class }}">{{ item.status }}</span>{{ sh.status_help(item.status) }}
       </div>
       {% endfor %}
     </div>

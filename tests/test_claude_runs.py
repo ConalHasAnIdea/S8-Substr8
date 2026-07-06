@@ -67,7 +67,7 @@ def test_successful_claude_run_persists_without_modifying_mapping_status(tmp_pat
     assert source_mapping["governance_status"] == "Pending Approval"
     assert entry["engine"] == "claude"
     assert entry["model"] == DEFAULT_CLAUDE_MODEL
-    assert entry["model_label"] == "Claude Sonnet 4.6"
+    assert entry["model_label"] == "Claude Sonnet 5"
     assert entry["run_succeeded"] is True
     assert entry["mock_confidence_score"] == 0.86
     assert entry["mock_governance_status"] == "Pending Approval"
@@ -121,7 +121,7 @@ def test_invalid_claude_model_falls_back_to_default(tmp_path):
     )
 
     assert entry["model"] == DEFAULT_CLAUDE_MODEL
-    assert entry["model_label"] == "Claude Sonnet 4.6"
+    assert entry["model_label"] == "Claude Sonnet 5"
 
 
 def test_demo_reset_splits_old_claude_runs_into_historical_bucket(tmp_path):

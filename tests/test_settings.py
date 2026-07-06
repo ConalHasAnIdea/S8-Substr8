@@ -89,17 +89,16 @@ def test_environment_fallback_when_store_is_empty(monkeypatch):
 
 def test_saving_a_key_enables_the_engine_options_in_the_ui(client, monkeypatch):
     before = client.get("/")
-    assert b"Claude - Not configured" in before.data
-    assert b"OpenAI GPT-5.5 - Not configured" in before.data
+    assert b'value="FrontierLLM (per-mapping comparison)" disabled' in before.data
 
     monkeypatch.setattr(appmod, "validate_anthropic_key", lambda key: (True, None))
     monkeypatch.setattr(appmod, "validate_openai_key", lambda key: (True, None))
     client.post("/settings", data={"anthropic_api_key": "sk-ant-live", "openai_api_key": "sk-openai-live"})
 
     after = client.get("/")
-    assert b"Claude - Not configured" not in after.data
-    assert b"OpenAI GPT-5.5 - Not configured" not in after.data
-    assert b"Run with Claude" in after.data or b"Claude (per-mapping comparison)" in after.data
+    assert b'value="FrontierLLM (per-mapping comparison)" disabled' not in after.data
+    assert b"Claude Sonnet 5" in after.data
+    assert b"ChatGPT-5.5" in after.data
 
 
 def local_status_stub():
@@ -109,28 +108,21 @@ def local_status_stub():
         "label": "Connected",
         "message": "Reached http://local-pod.example/api/tags.",
         "base_url": api_keys.get_local_base_url() or "",
-        "model": api_keys.get_local_model(),
+        "models": ["llama3.1"],
         "source": api_keys.local_config_source(),
     }
 
 
 def test_valid_local_config_is_marked_valid_and_stored(client, monkeypatch):
-    monkeypatch.setattr(appmod, "validate_local_settings", lambda base_url, model: (True, None))
+    monkeypatch.setattr(appmod, "validate_local_settings", lambda base_url: (True, None))
     monkeypatch.setattr(appmod, "local_llm_status", local_status_stub)
 
-    response = client.post(
-        "/settings",
-        data={
-            "local_llm_base_url": "http://local-pod.example",
-            "local_llm_model": "llama3.1",
-        },
-    )
+    response = client.post("/settings", data={"local_llm_base_url": "http://local-pod.example"})
 
     assert response.status_code == 200
     assert b"Valid" in response.data
     assert b"Stored in memory for this session." in response.data
     assert api_keys.get_local_base_url() == "http://local-pod.example"
-    assert api_keys.get_local_model() == "llama3.1"
     assert api_keys.local_config_source() == "settings"
 
 
@@ -138,7 +130,7 @@ def test_unreachable_local_config_is_marked_invalid_with_error(client, monkeypat
     monkeypatch.setattr(
         appmod,
         "validate_local_settings",
-        lambda base_url, model: (False, "Could not reach http://local-pod.example/api/tags: connection refused"),
+        lambda base_url: (False, "Could not reach http://local-pod.example/api/tags: connection refused"),
     )
     monkeypatch.setattr(appmod, "local_llm_status", lambda: {
         "configured": False,
@@ -146,17 +138,11 @@ def test_unreachable_local_config_is_marked_invalid_with_error(client, monkeypat
         "label": "Not configured",
         "message": "Set LOCAL_LLM_BASE_URL to enable the local engine.",
         "base_url": "",
-        "model": "llama3.1",
+        "models": [],
         "source": None,
     })
 
-    response = client.post(
-        "/settings",
-        data={
-            "local_llm_base_url": "http://local-pod.example",
-            "local_llm_model": "llama3.1",
-        },
-    )
+    response = client.post("/settings", data={"local_llm_base_url": "http://local-pod.example"})
 
     assert response.status_code == 200
     assert b"Invalid" in response.data
@@ -164,38 +150,8 @@ def test_unreachable_local_config_is_marked_invalid_with_error(client, monkeypat
     assert api_keys.get_local_base_url() is None
 
 
-def test_missing_local_model_is_marked_invalid_with_error(client, monkeypatch):
-    monkeypatch.setattr(
-        appmod,
-        "validate_local_settings",
-        lambda base_url, model: (False, "Model 'nemotron-3-nano:4b' was not found at http://local-pod.example/api/tags. Available models: llama3.1."),
-    )
-    monkeypatch.setattr(appmod, "local_llm_status", lambda: {
-        "configured": False,
-        "reachable": False,
-        "label": "Not configured",
-        "message": "Set LOCAL_LLM_BASE_URL to enable the local engine.",
-        "base_url": "",
-        "model": "llama3.1",
-        "source": None,
-    })
-
-    response = client.post(
-        "/settings",
-        data={
-            "local_llm_base_url": "http://local-pod.example",
-            "local_llm_model": "nemotron-3-nano:4b",
-        },
-    )
-
-    assert response.status_code == 200
-    assert b"Invalid" in response.data
-    assert b"Model &#39;nemotron-3-nano:4b&#39; was not found" in response.data
-    assert api_keys.get_local_base_url() is None
-
-
 def test_clearing_local_config_removes_settings_override(client, monkeypatch):
-    api_keys.set_local_config("http://settings-pod.example", "llama3.1")
+    api_keys.set_local_config("http://settings-pod.example")
 
     response = client.post("/settings/local/clear")
 
@@ -206,14 +162,13 @@ def test_clearing_local_config_removes_settings_override(client, monkeypatch):
 
 def test_local_status_shows_environment_source_and_url(client, monkeypatch):
     monkeypatch.setenv("LOCAL_LLM_BASE_URL", "http://env-pod.example")
-    monkeypatch.setenv("LOCAL_LLM_MODEL", "llama3.1")
     monkeypatch.setattr(appmod, "local_llm_status", lambda: {
         "configured": True,
         "reachable": True,
         "label": "Connected",
         "message": "Reached http://env-pod.example/api/tags.",
         "base_url": "http://env-pod.example",
-        "model": "llama3.1",
+        "models": ["llama3.1"],
         "source": "environment",
     })
 
@@ -221,6 +176,13 @@ def test_local_status_shows_environment_source_and_url(client, monkeypatch):
 
     assert b"Loaded from environment: http://env-pod.example" in response.data
     assert b"Endpoint: http://env-pod.example" in response.data
+
+
+def test_settings_page_no_longer_collects_a_model_field(client):
+    response = client.get("/settings")
+
+    assert b'name="local_llm_model"' not in response.data
+    assert b"which model to use" in response.data.lower()
 
 
 def test_engines_prefer_in_memory_key_over_environment(monkeypatch):
@@ -243,10 +205,9 @@ def test_engines_prefer_in_memory_key_over_environment(monkeypatch):
     assert OpenAIDiscoveryEngine().client.api_key == "settings-openai-key"
 
 
-def test_local_engine_prefers_in_memory_config_over_environment(monkeypatch):
+def test_local_engine_prefers_in_memory_base_url_over_environment(monkeypatch):
     monkeypatch.setenv("LOCAL_LLM_BASE_URL", "http://env-pod.example")
-    monkeypatch.setenv("LOCAL_LLM_MODEL", "env-model")
-    api_keys.set_local_config("http://settings-pod.example", "settings-model")
+    api_keys.set_local_config("http://settings-pod.example")
 
     class FakeOpenAIClientFactory:
         def __init__(self):
@@ -261,7 +222,6 @@ def test_local_engine_prefers_in_memory_config_over_environment(monkeypatch):
 
     monkeypatch.setattr(local_discovery_engine, "openai", fake_openai)
 
-    engine = local_discovery_engine.LocalDiscoveryEngine()
+    engine = local_discovery_engine.LocalDiscoveryEngine(model="llama3.1")
 
-    assert engine.model == "settings-model"
     assert fake_openai.kwargs["base_url"] == "http://settings-pod.example/v1"
