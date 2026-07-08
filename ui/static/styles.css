@@ -125,11 +125,15 @@ a {
 }
 
 .wordmark {
+  position: sticky;
+  top: calc(var(--space-6) * -1);
+  z-index: 1;
   display: grid;
   justify-items: center;
   gap: var(--space-3);
-  margin: 0 0 var(--space-8);
-  padding: var(--space-3);
+  margin: calc(var(--space-6) * -1) calc(var(--space-6) * -1) var(--space-8);
+  padding: var(--space-6) var(--space-6) var(--space-3);
+  background: var(--color-sidebar);
   text-decoration: none;
   font-size: var(--type-lg);
   font-weight: 750;
@@ -320,6 +324,12 @@ a {
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.page-subheader {
+  margin: 0 0 var(--space-5);
+  color: var(--color-text-secondary);
+  font-size: var(--type-md);
 }
 
 .mapping-list {
@@ -1071,6 +1081,60 @@ th {
   font-size: var(--type-xs);
   letter-spacing: 0.06em;
   text-transform: uppercase;
+}
+
+.security-engine-heading,
+.security-panel-title {
+  display: inline-flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  align-items: flex-start;
+}
+
+.security-panel-title {
+  margin: 0;
+}
+
+.security-engine-logo {
+  display: block;
+  width: 42px;
+  height: 42px;
+  object-fit: contain;
+  border-radius: var(--radius-sm);
+}
+
+.security-engine-heading .security-engine-logo {
+  width: 34px;
+  height: 34px;
+}
+
+.verdict-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 var(--space-2);
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: var(--type-xs);
+}
+
+.verdict-held {
+  background: var(--status-approved-bg);
+  color: var(--status-approved-text);
+}
+
+.verdict-followed {
+  background: var(--status-rejected-bg);
+  color: var(--status-rejected-text);
+}
+
+.verdict-error {
+  background: var(--status-clarification-bg);
+  color: var(--status-clarification-text);
+}
+
+.verdict-not-run {
+  color: var(--color-text-muted);
 }
 
 .team-group {

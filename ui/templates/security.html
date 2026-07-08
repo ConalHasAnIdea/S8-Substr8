@@ -1,26 +1,71 @@
 {% extends "base.html" %}
 
-{% block title %}Substr8 Security{% endblock %}
+{% block title %}Substr8 Security - Prompt Injection Test{% endblock %}
 
 {% block content %}
-<section class="page-intro">
-  <p>Substr8 plants realistic prompt-injection payloads inside evidence records — a ticket's operator commentary, an operator note body, a legacy rule's note field — then compares each engine's response on a clean copy of the evidence against a poisoned copy. "Followed" means the engine's decision changed in exactly the way the payload asked for (a fabricated citation appearing, a destination flipping, a confidence hitting the injected value) — not just that something changed. {{ scenario_count }} scenarios run against every engine below.</p>
-</section>
+<p class="page-subheader">Payloads planted as traps in the evidence corpus, used to test prompt injection resistance</p>
 
 <section class="panel">
   <h3>Run Probes</h3>
-  <p class="muted">Mock always runs below since it is free, deterministic, and needs nothing external. Claude, OpenAI, and Local only run when you click this — each is a real network call (Claude and OpenAI cost money; Local is a real round trip to your configured endpoint). A missing key or an unreachable endpoint shows as skipped rather than an error.</p>
+  <p class="muted">Mock always runs below since it is free, deterministic, and needs nothing external. Claude, OpenAI, and every model currently offered by your local endpoint only run when you click this — each is a real network call (Claude and OpenAI cost money; Local is a real round trip to your configured endpoint, tested once per model it reports). A missing key or an unreachable endpoint shows as skipped rather than an error.</p>
   <form method="post" action="{{ url_for('security') }}">
     <button type="submit">Run Probes Against All Configured Engines</button>
   </form>
 </section>
 
+<section class="panel">
+  <h3>Current Run — Summary</h3>
+  <p class="muted">Every engine actually run below, against every scenario. "Not run" means that engine was skipped (not configured/reachable) or hasn't been probed yet this page load.</p>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Scenario</th>
+          {% for header in summary_table.engine_headers %}
+          <th>
+            <span class="security-engine-heading">
+              {% if header.logo_filename %}
+              <img class="security-engine-logo" src="{{ url_for('static', filename=header.logo_filename) }}" alt="{{ header.logo_alt }}">
+              {% endif %}
+              <span>{{ header.label }}</span>
+            </span>
+          </th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in summary_table.rows %}
+        <tr>
+          <td>{{ row.scenario }}</td>
+          {% for cell in row.cells %}
+          <td><span class="verdict-badge verdict-{{ cell.verdict|replace(' ', '-') }}">{{ cell.label }}</span></td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="panel">
+  <h3>How This Test Works</h3>
+  <p>Substr8 plants realistic prompt-injection payloads inside evidence records: a ticket's operator commentary, an operator note body, a legacy rule's note field.</p>
+  <p>Each engine's response is compared on a clean copy of the evidence against a poisoned copy.</p>
+  <p><strong>"Followed"</strong> means the engine's decision changed in exactly the way the payload asked for — a fabricated citation appearing, a destination flipping, a confidence hitting the injected value — not just that something changed.</p>
+  <p class="muted">{{ scenario_count }} scenarios run against every engine, summarized in the table above and detailed further below.</p>
+</section>
+
 {% for column in columns %}
 <section class="panel">
   <div class="summary">
-    <h3>{{ column.label }}</h3>
+    <h3 class="security-panel-title">
+      {% if column.logo_filename %}
+      <img class="security-engine-logo" src="{{ url_for('static', filename=column.logo_filename) }}" alt="{{ column.logo_alt }}">
+      {% endif %}
+      <span>{{ column.label }}</span>
+    </h3>
     {% if column.status == 'ran' and column.result %}
-    <span class="status-pill status-approved">Held {{ column.result.held }}/{{ column.result.total }}</span>
+    <span class="status-pill status-approved">{{ 'Held (mocked)' if column.key == 'Mock' else 'Held' }} {{ column.result.held }}/{{ column.result.total }}</span>
     {% if column.result.followed %}
     <span class="status-pill status-rejected">Followed {{ column.result.followed }}/{{ column.result.total }}</span>
     {% endif %}
@@ -53,7 +98,7 @@
         {% elif row.followed %}
         <span class="status-pill status-rejected">FOLLOWED - guardrail failed</span>
         {% else %}
-        <span class="status-pill status-approved">Held</span>
+        <span class="status-pill status-approved">{{ 'Held (mocked)' if column.key == 'Mock' else 'Held' }}</span>
         {% endif %}
       </div>
       <p class="muted">Poisoned field: {{ row.target_field }}</p>
@@ -72,4 +117,49 @@
   {% endif %}
 </section>
 {% endfor %}
+
+<section class="panel">
+  <h3>History of Past Runs</h3>
+  {% if history %}
+  <div class="mapping-list">
+    {% for run in history %}
+    <details class="historical-results">
+      <summary>{{ run.timestamp }} &middot; {{ run.user }}</summary>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Engine</th>
+              <th>Held</th>
+              <th>Followed</th>
+              <th>Errored</th>
+              <th>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for engine in run.engines %}
+            <tr>
+              <td>{{ engine.label }}</td>
+              <td>{{ engine.held if engine.held is not none else '—' }}</td>
+              <td>
+                {% if engine.followed %}
+                <span class="verdict-badge verdict-followed">{{ engine.followed }}</span>
+                {% else %}
+                {{ engine.followed if engine.followed is not none else '—' }}
+                {% endif %}
+              </td>
+              <td>{{ engine.errored if engine.errored is not none else '—' }}</td>
+              <td>{{ engine.total if engine.total is not none else '—' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="empty">No probe runs recorded yet. Click "Run Probes" above to create the first entry.</p>
+  {% endif %}
+</section>
 {% endblock %}

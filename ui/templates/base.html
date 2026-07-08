@@ -55,7 +55,7 @@
     <div class="workbench">
       <header class="topbar">
         <div>
-          <p class="eyebrow">{{ domain.source if domain is defined and domain else 'Governed integration substrates' }}{% if domain is defined and domain %} to {{ domain.target }}{% endif %}</p>
+          <p class="eyebrow">{% if page_subtitle is defined and page_subtitle %}{{ page_subtitle }}{% elif domain is defined and domain %}{{ domain.source }} to {{ domain.target }}{% else %}Governed integration substrates{% endif %}</p>
           <h1>{{ view_title|default('Review Queue') }}</h1>
         </div>
         <div class="topbar-context">

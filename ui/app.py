@@ -15,6 +15,7 @@ if str(BASE_DIR) not in sys.path:
 from discovery.api_keys import ANTHROPIC, OPENAI, clear_api_key, get_api_key, key_source, set_api_key
 from discovery.api_keys import clear_local_config, get_local_base_url, list_local_models, local_config_source, set_local_config
 from discovery.injection_suite import SCENARIOS, describe_intent, score_engines_safe
+from governance.security_probe_log import append_security_probe_run, load_security_probe_runs
 from discovery.mock_discovery_engine import MockDiscoveryEngine, run_discovery
 from discovery.retrieval import EvidenceRetriever
 from governance.approval_model import assign_mapping, is_decision_locked, load_proposals, mapping_label, record_decision, unassign_mapping
@@ -931,20 +932,38 @@ def _build_local_injection_engine(model: str):
     return LocalDiscoveryEngine(model=model)
 
 
+def security_engine_logo(key: str, label: str) -> dict[str, str | None]:
+    label_lower = label.lower()
+    if key == "Mock":
+        return {"filename": "SubStr8_Logo.png", "alt": "Substr8 logo"}
+    if key == "Claude":
+        return {"filename": "anthropic-logo.png", "alt": "Anthropic logo"}
+    if key == "OpenAI":
+        return {"filename": "oai-logo.png", "alt": "OpenAI logo"}
+    if key.startswith("Local:") and "nemotron" in label_lower:
+        return {"filename": "Nemotronlogo.png", "alt": "Nemotron logo"}
+    if key.startswith("Local:") and "llama" in label_lower:
+        return {"filename": "llamalogo.png", "alt": "Llama logo"}
+    return {"filename": None, "alt": None}
+
+
 def security_columns(run_live: bool) -> list[dict]:
     """One column per engine for the /security page. Mock always runs - it is
     free and deterministic and needs nothing external. Claude, OpenAI, and
-    Local only run when run_live is True (a deliberate "Run Probes" click,
-    since each is a real network call - Claude/OpenAI cost money), and only
-    when actually configured/reachable. A missing key, an unreachable local
-    endpoint, or an engine that fails to even construct shows as a clear
-    skipped/error state; nothing here can 500 the page."""
+    every model currently offered by the local endpoint only run when
+    run_live is True (a deliberate "Run Probes" click, since each is a real
+    network call - Claude/OpenAI cost money), and only when actually
+    configured/reachable. Local is NOT limited to whichever single model is
+    "selected" elsewhere in the app - every model the endpoint's /api/tags
+    reports gets its own column, so e.g. both llama3.1 and a nemotron variant
+    show up side by side rather than only the one the dropdown happens to
+    default to. A missing key, an unreachable local endpoint, or an engine
+    that fails to even construct shows as a clear skipped/error state;
+    nothing here can 500 the page."""
     local_status = local_llm_status()
-    local_model = selected_local_model("assurance", local_status["models"]) if local_status["reachable"] else None
-    local_label = f"Local ({local_model})" if local_model else "Local"
 
     to_run: dict[str, Any] = {"Mock": MockDiscoveryEngine()}
-    columns: list[dict[str, Any]] = [{"key": "Mock", "label": "Mock", "status": "pending", "reason": None}]
+    columns: list[dict[str, Any]] = [{"key": "Mock", "label": "Substr8", "status": "pending", "reason": None}]
 
     def plan(key: str, label: str, available: bool, unavailable_reason: str | None, factory) -> None:
         if not available:
@@ -969,21 +988,26 @@ def security_columns(run_live: bool) -> list[dict]:
         "Not configured - add an OpenAI API key on the Settings page.",
         _build_openai_injection_engine,
     )
+
     if not local_status["configured"]:
-        local_reason = "No local endpoint configured. Set one on the Settings page."
+        plan("Local", "Local", False, "No local endpoint configured. Set one on the Settings page.", None)
     elif not local_status["reachable"]:
-        local_reason = f"Local endpoint unreachable: {local_status['message']}"
+        plan("Local", "Local", False, f"Local endpoint unreachable: {local_status['message']}", None)
+    elif not local_status["models"]:
+        plan("Local", "Local", False, "Local endpoint reachable but reported no models at /api/tags.", None)
     else:
-        local_reason = None
-    plan(
-        "Local", local_label, local_status["reachable"],
-        local_reason,
-        lambda: _build_local_injection_engine(local_model),
-    )
+        for model in local_status["models"]:
+            plan(
+                f"Local:{model}", f"Local ({model})", True, None,
+                lambda model=model: _build_local_injection_engine(model),
+            )
 
     scorecard = score_engines_safe(to_run)
     scenario_lookup = {scenario.name: scenario for scenario in SCENARIOS}
     for column in columns:
+        logo = security_engine_logo(column["key"], column["label"])
+        column["logo_filename"] = logo["filename"]
+        column["logo_alt"] = logo["alt"]
         if column["status"] != "pending":
             continue
         column["status"] = "ran"
@@ -998,17 +1022,77 @@ def security_columns(run_live: bool) -> list[dict]:
     return columns
 
 
+def _verdict_label(column_key: str, verdict: str) -> str:
+    """Display text for a verdict. Substr8 (the deterministic mock) always
+    holds by construction - it never actually faced the payload the way a
+    real model call did - so its held cells are marked distinctly rather than
+    implying it "passed" the same test a live model did."""
+    if column_key == "Mock" and verdict == "held":
+        return "held (mocked)"
+    return verdict
+
+
+def build_security_summary_table(columns: list[dict]) -> dict:
+    """Grid for the top-of-page table: one row per scenario, one column per
+    engine. Each cell keeps a CSS-class verdict ('held'/'followed'/'error'/
+    'not run') separate from its display label, since Substr8's label differs
+    from its verdict class."""
+    verdict_lookup: dict[str, dict[str, str]] = {}
+    for column in columns:
+        result = column.get("result")
+        cells: dict[str, str] = {}
+        if column["status"] == "ran" and result:
+            for row in result["scenarios"]:
+                if row.get("error") or row["followed"] is None:
+                    cells[row["scenario"]] = "error"
+                elif row["followed"]:
+                    cells[row["scenario"]] = "followed"
+                else:
+                    cells[row["scenario"]] = "held"
+        verdict_lookup[column["key"]] = cells
+
+    rows = [
+        {
+            "scenario": scenario.name,
+            "cells": [
+                {
+                    "verdict": verdict_lookup[column["key"]].get(scenario.name, "not run"),
+                    "label": _verdict_label(column["key"], verdict_lookup[column["key"]].get(scenario.name, "not run")),
+                }
+                for column in columns
+            ],
+        }
+        for scenario in SCENARIOS
+    ]
+    return {
+        "engine_headers": [
+            {
+                "label": column["label"],
+                "logo_filename": column.get("logo_filename"),
+                "logo_alt": column.get("logo_alt"),
+            }
+            for column in columns
+        ],
+        "rows": rows,
+    }
+
+
 @app.route("/security", methods=["GET", "POST"])
 def security():
     run_live = request.method == "POST"
+    columns = security_columns(run_live)
+    if run_live:
+        append_security_probe_run(OUTPUT_DIR, columns)
     return render_template(
         "security.html",
-        columns=security_columns(run_live),
+        columns=columns,
+        summary_table=build_security_summary_table(columns),
+        history=load_security_probe_runs(OUTPUT_DIR),
         scenario_count=len(SCENARIOS),
         ran_live=run_live,
         active_domain=None,
         active_nav="security",
-        view_title="Security",
+        view_title="Security - Prompt Injection Test",
     )
 
 
