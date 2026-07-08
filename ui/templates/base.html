@@ -41,6 +41,7 @@
         <a class="nav-item {{ 'active' if active_nav == 'approved' else '' }}" href="{{ url_for('approved_substrates') }}">Approved Mappings</a>
         <a class="nav-item {{ 'active' if active_nav == 'substrate_versions' else '' }}" href="{{ url_for('substrate_versions_page') }}">Substrate Versions</a>
         <a class="nav-item {{ 'active' if active_nav == 'audit' else '' }}" href="{{ url_for('audit_log') }}">Audit Log</a>
+        <a class="nav-item {{ 'active' if active_nav == 'security' else '' }}" href="{{ url_for('security') }}">Security</a>
         <a class="nav-item {{ 'active' if active_nav == 'team' else '' }}" href="{{ url_for('team') }}">Team</a>
       </nav>
 

@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Any
 import secrets
 import sys
 import json
@@ -13,7 +14,8 @@ if str(BASE_DIR) not in sys.path:
 
 from discovery.api_keys import ANTHROPIC, OPENAI, clear_api_key, get_api_key, key_source, set_api_key
 from discovery.api_keys import clear_local_config, get_local_base_url, list_local_models, local_config_source, set_local_config
-from discovery.mock_discovery_engine import run_discovery
+from discovery.injection_suite import SCENARIOS, describe_intent, score_engines_safe
+from discovery.mock_discovery_engine import MockDiscoveryEngine, run_discovery
 from discovery.retrieval import EvidenceRetriever
 from governance.approval_model import assign_mapping, is_decision_locked, load_proposals, mapping_label, record_decision, unassign_mapping
 from governance.claude_runs import DEFAULT_CLAUDE_MODEL, run_claude_comparison, split_runs_for_mapping
@@ -909,6 +911,105 @@ def settings_clear():
 def settings_local_clear():
     clear_local_config()
     return redirect(url_for("settings"))
+
+
+def _build_claude_injection_engine():
+    from discovery.claude_discovery_engine import ClaudeDiscoveryEngine
+
+    return ClaudeDiscoveryEngine()
+
+
+def _build_openai_injection_engine():
+    from discovery.openai_discovery_engine import OpenAIDiscoveryEngine
+
+    return OpenAIDiscoveryEngine()
+
+
+def _build_local_injection_engine(model: str):
+    from discovery.local_discovery_engine import LocalDiscoveryEngine
+
+    return LocalDiscoveryEngine(model=model)
+
+
+def security_columns(run_live: bool) -> list[dict]:
+    """One column per engine for the /security page. Mock always runs - it is
+    free and deterministic and needs nothing external. Claude, OpenAI, and
+    Local only run when run_live is True (a deliberate "Run Probes" click,
+    since each is a real network call - Claude/OpenAI cost money), and only
+    when actually configured/reachable. A missing key, an unreachable local
+    endpoint, or an engine that fails to even construct shows as a clear
+    skipped/error state; nothing here can 500 the page."""
+    local_status = local_llm_status()
+    local_model = selected_local_model("assurance", local_status["models"]) if local_status["reachable"] else None
+    local_label = f"Local ({local_model})" if local_model else "Local"
+
+    to_run: dict[str, Any] = {"Mock": MockDiscoveryEngine()}
+    columns: list[dict[str, Any]] = [{"key": "Mock", "label": "Mock", "status": "pending", "reason": None}]
+
+    def plan(key: str, label: str, available: bool, unavailable_reason: str | None, factory) -> None:
+        if not available:
+            columns.append({"key": key, "label": label, "status": "skipped", "reason": unavailable_reason})
+            return
+        if not run_live:
+            columns.append({"key": key, "label": label, "status": "ready", "reason": None})
+            return
+        try:
+            to_run[key] = factory()
+            columns.append({"key": key, "label": label, "status": "pending", "reason": None})
+        except Exception as exc:
+            columns.append({"key": key, "label": label, "status": "error", "reason": f"Could not start the {label} engine: {exc}"})
+
+    plan(
+        "Claude", "Claude", claude_configured(),
+        "Not configured - add an Anthropic API key on the Settings page.",
+        _build_claude_injection_engine,
+    )
+    plan(
+        "OpenAI", "OpenAI", openai_configured(),
+        "Not configured - add an OpenAI API key on the Settings page.",
+        _build_openai_injection_engine,
+    )
+    if not local_status["configured"]:
+        local_reason = "No local endpoint configured. Set one on the Settings page."
+    elif not local_status["reachable"]:
+        local_reason = f"Local endpoint unreachable: {local_status['message']}"
+    else:
+        local_reason = None
+    plan(
+        "Local", local_label, local_status["reachable"],
+        local_reason,
+        lambda: _build_local_injection_engine(local_model),
+    )
+
+    scorecard = score_engines_safe(to_run)
+    scenario_lookup = {scenario.name: scenario for scenario in SCENARIOS}
+    for column in columns:
+        if column["status"] != "pending":
+            continue
+        column["status"] = "ran"
+        result = scorecard.get(column["key"])
+        column["result"] = result
+        if result:
+            for row in result["scenarios"]:
+                scenario_obj = scenario_lookup.get(row["scenario"])
+                row["description"] = scenario_obj.description if scenario_obj else ""
+                row["payload"] = scenario_obj.payload if scenario_obj else ""
+                row["intent_description"] = describe_intent(row["intent_kind"], row["intent_value"])
+    return columns
+
+
+@app.route("/security", methods=["GET", "POST"])
+def security():
+    run_live = request.method == "POST"
+    return render_template(
+        "security.html",
+        columns=security_columns(run_live),
+        scenario_count=len(SCENARIOS),
+        ran_live=run_live,
+        active_domain=None,
+        active_nav="security",
+        view_title="Security",
+    )
 
 
 @app.route("/demo-controls")

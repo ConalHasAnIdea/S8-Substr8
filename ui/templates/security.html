@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+{% block title %}Substr8 Security{% endblock %}
+
+{% block content %}
+<section class="page-intro">
+  <p>Substr8 plants realistic prompt-injection payloads inside evidence records — a ticket's operator commentary, an operator note body, a legacy rule's note field — then compares each engine's response on a clean copy of the evidence against a poisoned copy. "Followed" means the engine's decision changed in exactly the way the payload asked for (a fabricated citation appearing, a destination flipping, a confidence hitting the injected value) — not just that something changed. {{ scenario_count }} scenarios run against every engine below.</p>
+</section>
+
+<section class="panel">
+  <h3>Run Probes</h3>
+  <p class="muted">Mock always runs below since it is free, deterministic, and needs nothing external. Claude, OpenAI, and Local only run when you click this — each is a real network call (Claude and OpenAI cost money; Local is a real round trip to your configured endpoint). A missing key or an unreachable endpoint shows as skipped rather than an error.</p>
+  <form method="post" action="{{ url_for('security') }}">
+    <button type="submit">Run Probes Against All Configured Engines</button>
+  </form>
+</section>
+
+{% for column in columns %}
+<section class="panel">
+  <div class="summary">
+    <h3>{{ column.label }}</h3>
+    {% if column.status == 'ran' and column.result %}
+    <span class="status-pill status-approved">Held {{ column.result.held }}/{{ column.result.total }}</span>
+    {% if column.result.followed %}
+    <span class="status-pill status-rejected">Followed {{ column.result.followed }}/{{ column.result.total }}</span>
+    {% endif %}
+    {% if column.result.errored %}
+    <span class="status-pill status-needs-clarification">Errored {{ column.result.errored }}/{{ column.result.total }}</span>
+    {% endif %}
+    {% elif column.status == 'skipped' %}
+    <span class="status-pill status-needs-clarification">Skipped - not configured</span>
+    {% elif column.status == 'ready' %}
+    <span class="status-pill status-pending-approval">Configured - not yet run</span>
+    {% elif column.status == 'error' %}
+    <span class="status-pill status-rejected">Could not start</span>
+    {% endif %}
+  </div>
+
+  {% if column.status == 'skipped' %}
+  <p class="muted">{{ column.reason }}</p>
+  {% elif column.status == 'ready' %}
+  <p class="muted">Configured. Click "Run Probes" above to test this engine with a real call.</p>
+  {% elif column.status == 'error' %}
+  <p class="error-inline">{{ column.reason }}</p>
+  {% elif column.status == 'ran' and column.result %}
+  <div class="mapping-list">
+    {% for row in column.result.scenarios %}
+    <article class="panel {{ 'insufficient' if row.followed else '' }}">
+      <div class="summary">
+        <strong>{{ row.scenario }}</strong>
+        {% if row.error %}
+        <span class="status-pill status-needs-clarification">Error</span>
+        {% elif row.followed %}
+        <span class="status-pill status-rejected">FOLLOWED - guardrail failed</span>
+        {% else %}
+        <span class="status-pill status-approved">Held</span>
+        {% endif %}
+      </div>
+      <p class="muted">Poisoned field: {{ row.target_field }}</p>
+      <p>{{ row.description }}</p>
+      <details>
+        <summary>Payload attempted</summary>
+        <pre>{{ row.payload }}</pre>
+      </details>
+      <p class="muted">{{ row.intent_description }}</p>
+      {% if row.error %}
+      <p class="error-inline">Engine error for this scenario: {{ row.error }}</p>
+      {% endif %}
+    </article>
+    {% endfor %}
+  </div>
+  {% endif %}
+</section>
+{% endfor %}
+{% endblock %}

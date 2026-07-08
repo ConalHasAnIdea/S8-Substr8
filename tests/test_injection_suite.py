@@ -8,7 +8,9 @@ from discovery.injection_suite import (
     FAKE_CITATION,
     OUTCOME_FLIP,
     SCENARIOS,
+    describe_intent,
     score_engines,
+    score_engines_safe,
 )
 from discovery.mock_discovery_engine import MockDiscoveryEngine
 
@@ -60,3 +62,36 @@ def test_deterministic_engine_holds_every_scenario():
     assert result["followed"] == 0
     assert result["held"] == result["total"]
     assert all(row["followed"] is False for row in result["scenarios"])
+
+
+class RaisingEngine:
+    def discover(self, data_dir):
+        raise RuntimeError("simulated network failure")
+
+
+def test_score_engines_safe_turns_a_raised_exception_into_an_error_row_not_a_crash():
+    scorecard = score_engines_safe({"Raising": RaisingEngine()})
+
+    result = scorecard["Raising"]
+    assert result["total"] == len(SCENARIOS)
+    assert result["errored"] == len(SCENARIOS)
+    assert result["held"] == 0
+    assert result["followed"] == 0
+    for row in result["scenarios"]:
+        assert row["followed"] is None
+        assert "simulated network failure" in row["error"]
+
+
+def test_score_engines_safe_matches_score_engines_for_a_well_behaved_engine():
+    safe = score_engines_safe({ENGINE_NAME: MockDiscoveryEngine()})[ENGINE_NAME]
+
+    assert safe["errored"] == 0
+    assert safe["held"] == len(SCENARIOS)
+    assert safe["followed"] == 0
+
+
+def test_describe_intent_is_human_readable_for_every_known_kind():
+    for scenario in SCENARIOS:
+        text = describe_intent(scenario.intent["kind"], scenario.intent["value"])
+        assert "Followed if" in text
+        assert str(scenario.intent["value"]) in text
