@@ -113,7 +113,11 @@ class LocalDiscoveryEngine:
                 "validation_flags": ["malformed_json_response"],
             }
 
-        cited = set(parsed.get("evidence_citations", []))
+        _raw_cites = parsed.get("evidence_citations", []) or []
+        cited = {
+            c.get("ticket_id", "") if isinstance(c, dict) else str(c)
+            for c in _raw_cites
+        }
         validation = validate_citations(cited, valid_ids)
         normalized_citations = validation["normalized"]
         fabricated = validation["fabricated"]
