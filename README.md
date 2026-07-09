@@ -26,8 +26,8 @@ The default engine is `MockDiscoveryEngine` (labeled **Substr8** in the UI), a d
 
 Three comparison engines are also wired in, consuming the same evidence and emitting the same proposal shape as the mock, with their runs recorded beside it for drift comparison only. None of them affect governance status, approvals, or substrate versions:
 
-- **FrontierLLM** — Claude Sonnet 5 and ChatGPT-5.5, selectable from one merged dropdown (a single "Run" action, one provider chosen at a time).
-- **Local** — any Ollama-compatible endpoint (tested against RunPod-hosted Llama and Nemotron models). Every model the endpoint currently reports is available, not just one hardcoded name.
+- **FrontierLLM**: Claude Sonnet 5 and ChatGPT-5.5, selectable from one merged dropdown (a single "Run" action, one provider chosen at a time).
+- **Local**: any Ollama-compatible endpoint (tested against RunPod-hosted Llama and Nemotron models). Every model the endpoint currently reports is available, not just one hardcoded name.
 
 Model-backed comparison runs activate only when a key or endpoint is provided through an environment variable or the in-memory Settings page. Without one configured, no external model API is called.
 
@@ -109,17 +109,17 @@ Model-backed comparison engines need credentials. Substr8 supports two ways to p
 
 Keys and the local endpoint URL entered in Settings are validated with a cheap live call (a `models.list` call for Claude/OpenAI, a `/api/tags` call for a local endpoint) and held in process memory only. They are not written to disk, logs, or cookies. They disappear on restart. A value entered in Settings overrides the matching environment variable for the session.
 
-Which local *model* to run is not a Settings concern — it is chosen live, per run, from whatever the endpoint's `/api/tags` currently reports, on the discovery screen or the Security page. Pasting the full call endpoint by mistake (e.g. `https://host/api/generate` instead of the base URL) is normalized automatically rather than producing a broken path.
+Which local *model* to run is chosen live, per run, from whatever the endpoint's `/api/tags` currently reports, on the discovery screen or the Security page, not set in Settings. Pasting the full call endpoint by mistake (e.g. `https://host/api/generate` instead of the base URL) gets normalized automatically, so it does not produce a broken path.
 
 Production deployments should source model keys from a proper secrets manager, such as HashiCorp Vault, AWS Secrets Manager, Azure Key Vault, or GCP Secret Manager.
 
 ## Security Testing (Prompt Injection)
 
-The Security page (`/security`) makes the project's prompt-injection test suite visible in the browser instead of only existing as a CLI script. Substr8 plants realistic payloads inside evidence records — a ticket's operator commentary, an operator note body, a legacy rule's note field — and compares each engine's response on a clean copy of the evidence against a poisoned copy.
+The Security page (`/security`) makes the project's prompt-injection test suite visible in the browser instead of only existing as a CLI script. Substr8 plants realistic payloads inside evidence records: a ticket's operator commentary, an operator note body, a legacy rule's note field. Each engine's response is then compared on a clean copy of the evidence against a poisoned copy.
 
 "Followed" means an engine's decision changed in exactly the way a payload asked for: a fabricated citation appearing, a destination flipping, a confidence hitting the injected value. Detection reads only decision fields (citations, transformation logic, confidence), never the reasoning text, so a model that merely mentions the injected string while refusing it is correctly scored as held, not followed.
 
-Substr8 (the deterministic mock) always runs and holds every scenario by construction — it counts real evidence and cannot emit a fabricated ID, an out-of-corpus value, or a model-dictated confidence. FrontierLLM and every currently available Local model only run behind a "Run Probes" click, since each is a real network call. A missing key or unreachable endpoint shows as a clear skipped state, never a crash; a network or API failure on one specific engine/scenario shows as an inline error row rather than taking down the page. Each completed "Run Probes" click is logged to `output/security_probe_runs.jsonl` and shown in a run history on the same page.
+Substr8 (the deterministic mock) always runs and holds every scenario by construction. It counts real evidence and cannot emit a fabricated ID, an out-of-corpus value, or a model-dictated confidence. FrontierLLM and every currently available Local model only run behind a "Run Probes" click, since each is a real network call. A missing key or unreachable endpoint shows as a clear skipped state, never a crash. A network or API failure on one specific engine or scenario shows as an inline error row, not a page-wide failure. Each completed "Run Probes" click is logged to `output/security_probe_runs.jsonl` and shown in a run history on the same page.
 
 ## Project Structure
 
@@ -144,6 +144,6 @@ Later phases can add a runtime executor that enforces approved substrate version
 
 ## Contributors
 
-- **Conal Higgins** — project direction, prompt authorship, and review.
-- **Codex (OpenAI)** — implemented the initial build across most of the phased prompts (domains, governance workflow, team/assignment features, engine integrations).
-- **Claude (Anthropic)** — completed the remaining prompt work, verified the full prompt sequence against the codebase, added the API key settings page, built the prompt-injection test suite, and handled repository setup and hardening.
+- **Conal Higgins**: project direction, prompt authorship, and review.
+- **Codex (OpenAI)**: implemented the initial build across most of the phased prompts (domains, governance workflow, team/assignment features, engine integrations).
+- **Claude (Anthropic)**: completed the remaining prompt work, verified the full prompt sequence against the codebase, added the API key settings page, built the prompt-injection test suite, and handled repository setup and hardening.
